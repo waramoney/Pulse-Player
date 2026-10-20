@@ -39,6 +39,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -61,6 +62,7 @@ public final class MainActivity extends Activity {
     private boolean webReady;
     private boolean videoActive;
     private boolean videoPausedByLifecycle;
+    private final Random random = new Random();
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -165,6 +167,50 @@ public final class MainActivity extends Activity {
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
     private String readLibrary() { return prefs.getString("library", "[]"); }
+
+    /** Persist named playlists and per-song lyrics locally, without cloud requests. */
+    private String readCollections() { return prefs.getString("collections", "{}"); }
+
+    private void saveCollections(String json) {
+        if (json == null || json.length() > 1000000) return;
+        try {
+            JSONObject input = new JSONObject(json);
+            if (!(input.opt("lists") instanceof JSONArray)
+                    || !(input.opt("lyrics") instanceof JSONObject)) return;
+            prefs.edit().putString("collections", input.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
+    /** The active playback list is independent of the currently viewed library tab. */
+    private List<String> queueIds(String type) {
+        List<String> all = new ArrayList<>();
+        try {
+            JSONArray library = new JSONArray(readLibrary());
+            for (int i = 0; i < library.length(); i++) {
+                JSONObject item = library.optJSONObject(i);
+                if (item != null && type.equals(item.optString("type"))) {
+                    all.add(item.optString("id"));
+                }
+            }
+            JSONObject data = new JSONObject(readCollections());
+            String selectedId = data.optString("queueId");
+            if (selectedId.isEmpty()) return all;
+            JSONArray lists = data.optJSONArray("lists");
+            if (lists == null) return all;
+            for (int i = 0; i < lists.length(); i++) {
+                JSONObject row = lists.optJSONObject(i);
+                if (row == null || !selectedId.equals(row.optString("id"))) continue;
+                JSONArray ids = row.optJSONArray("tracks");
+                List<String> selected = new ArrayList<>();
+                if (ids != null) for (int j = 0; j < ids.length(); j++) {
+                    String id = ids.optString(j);
+                    if (all.contains(id) && !selected.contains(id)) selected.add(id);
+                }
+                return selected;
+            }
+        } catch (Exception ignored) { }
+        return all;
+    }
 
     private JSONObject findTrack(String id) {
         synchronized (libraryLock) {
@@ -416,15 +462,7 @@ public final class MainActivity extends Activity {
             pushState();
             return;
         }
-        List<String> ids = new ArrayList<>();
-        try {
-            JSONArray library = new JSONArray(readLibrary());
-            for (int i = 0; i < library.length(); i++) {
-                JSONObject item = library.optJSONObject(i);
-                if (item != null && "audio".equals(item.optString("type")))
-                    ids.add(item.optString("id"));
-            }
-        } catch (Exception ignored) { }
+        List<String> ids = queueIds("audio");
         if (ids.isEmpty()) return;
         int current = ids.indexOf(prefs.getString("lastId", ""));
         int next = current < 0 ? 0 : (current + direction + ids.size()) % ids.size();
@@ -478,22 +516,23 @@ public final class MainActivity extends Activity {
     }
 
     private void skipVideo(int direction, boolean automatic) {
-        List<String> items = new ArrayList<>();
-        try {
-            JSONArray lib = new JSONArray(readLibrary());
-            for (int i = 0; i < lib.length(); i++) {
-                JSONObject item = lib.optJSONObject(i);
-                if (item != null && "video".equals(item.optString("type"))) items.add(item.optString("id"));
-            }
-        } catch (Exception ignored) { }
+        List<String> items = queueIds("video");
         if (items.isEmpty()) { closeVideo(); return; }
         int current = items.indexOf(videoId);
-        int next = current + direction;
-        if (next >= items.size()) {
-            if (automatic && prefs.getInt("repeat", 0) != 1) { closeVideo(); return; }
+        int next;
+        if (prefs.getBoolean("shuffle", false) && items.size() > 1) {
+            next = random.nextInt(items.size() - 1);
+            if (current >= 0 && next >= current) next++;
+        } else if (current < 0) {
             next = 0;
+        } else {
+            next = current + direction;
+            if (next >= items.size()) {
+                if (automatic && prefs.getInt("repeat", 0) != 1) { closeVideo(); return; }
+                next = 0;
+            }
+            if (next < 0) next = items.size() - 1;
         }
-        if (next < 0) next = items.size() - 1;
         showVideo(items.get(next));
     }
 
@@ -548,6 +587,8 @@ public final class MainActivity extends Activity {
 
     private final class PlayerBridge {
         @JavascriptInterface public String getLibrary() { return readLibrary(); }
+        @JavascriptInterface public String getCollections() { return readCollections(); }
+        @JavascriptInterface public void saveCollections(String data) { MainActivity.this.saveCollections(data); }
         @JavascriptInterface public String getPreferences() {
             JSONObject out = new JSONObject();
             try {
@@ -571,7 +612,9 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> skipAudio(-1));
         }
         @JavascriptInterface public void seekTo(int pos) { runOnUiThread(() -> {
-            audioIntent(AudioPlaybackService.ACT_SEEK, null, pos); pushState();
+            if (videoActive && videoPrepared) videoView.seekTo(Math.max(0, pos));
+            else audioIntent(AudioPlaybackService.ACT_SEEK, null, pos);
+            pushState();
         }); }
         @JavascriptInterface public void requestState() { runOnUiThread(MainActivity.this::pushState); }
         @JavascriptInterface public void setOptions(boolean shuffle, int repeat, double speed) {

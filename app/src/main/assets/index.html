@@ -26,6 +26,13 @@
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
     <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M4 13V11a8 8 0 0 1 16 0v2m-16 0h3a2 2 0 0 1 2 2v4H6a2 2 0 0 1-2-2v-4Zm16 0h-3a2 2 0 0 0-2 2v4h3a2 2 0 0 0 2-2v-4Z"/></symbol>
+    <symbol id="i-list-add" viewBox="0 0 24 24"><path d="M4 5h10M4 11h10M4 17h8M18 11v10M13 16h10"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-lyrics" viewBox="0 0 24 24"><path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm4 5h6M10 12h6M10 16h4"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l5-1 11-11a2 2 0 0 0-5-5L4 14v6Z"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="m5 15 7-7 7 7"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
     <symbol id="i-fullscreen" viewBox="0 0 24 24"><path d="M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"/></symbol>
   </svg>
 
@@ -55,12 +62,21 @@
             <span class="offline-label">● 100% OFFLINE</span>
           </div>
 
+          <div class="player-modes" role="tablist" aria-label="재생 화면 표시">
+            <button type="button" class="player-mode active" id="artworkTab" role="tab" aria-selected="true"><svg class="ico"><use href="#i-music"></use></svg> 음악</button>
+            <button type="button" class="player-mode" id="lyricsTab" role="tab" aria-selected="false"><svg class="ico"><use href="#i-lyrics"></use></svg> 가사</button>
+            <button type="button" id="editLyrics" class="lyrics-edit-shortcut"><svg class="ico"><use href="#i-edit"></use></svg> 가사 편집</button>
+          </div>
           <div class="visual" id="visual">
             <div class="visual-light"></div>
             <div class="vinyl-wrap" id="vinylWrap">
               <div class="vinyl" id="vinyl"><div class="vinyl-sticker"><svg class="ico"><use href="#i-music"></use></svg></div></div>
             </div>
             <video id="browserVideo" class="browser-video" playsinline preload="metadata" hidden></video>
+            <div class="lyrics-panel" id="lyricsPanel" hidden>
+              <div class="lyrics-panel-label">LYRICS <span id="lyricsType"></span></div>
+              <div id="lyricsLines" class="lyrics-lines"></div>
+            </div>
             <div class="visual-caption" id="visualCaption">YOUR MUSIC, YOUR MOMENT</div>
           </div>
 
@@ -95,8 +111,24 @@
       </main>
 
       <section class="library" aria-labelledby="libraryTitle">
+        <section class="playlist-section" id="playlistSection" aria-label="내 플레이리스트">
+          <div class="playlist-heading">
+            <div><p class="section-label">MY PLAYLISTS</p><h2>내 플레이리스트</h2></div>
+            <button class="add-button" id="createPlaylist" type="button"><svg class="ico"><use href="#i-plus"></use></svg> 새 목록</button>
+          </div>
+          <div id="playlistCards" class="playlist-cards"></div>
+          <div class="playlist-tools" id="playlistTools" hidden>
+            <div class="playlist-tools-label"><strong id="selectedPlaylistName"></strong><span id="selectedPlaylistCount"></span></div>
+            <div class="playlist-tool-buttons">
+              <button id="playlistPlay" type="button" class="tool-primary">▶ 전체 재생</button>
+              <button id="addPlaylistTracks" type="button">+ 곡 담기</button>
+              <button id="renamePlaylist" type="button">이름 변경</button>
+              <button id="deletePlaylist" type="button">삭제</button>
+            </div>
+          </div>
+        </section>
         <div class="library-top">
-          <div><p class="section-label">MY COLLECTION</p><h2 id="libraryTitle">내 라이브러리 <span id="mediaCount">0</span></h2></div>
+          <div><p class="section-label">MY COLLECTION</p><h2 id="libraryTitle"><span class="library-heading" id="libraryHeading">내 라이브러리</span> <span id="mediaCount">0</span></h2></div>
           <button id="libraryAdd" class="add-button"><svg class="ico"><use href="#i-plus"></use></svg> 파일 추가</button>
         </div>
 
@@ -116,6 +148,33 @@
       </section>
     </div>
     <footer class="site-footer"><span>Ⓟ PULSE PLAYER</span><span>PRIVATE • OFFLINE • YOURS</span></footer>
+  </div>
+  <div id="miniPlayer" class="mini-player" hidden>
+    <button id="miniInfo" type="button" class="mini-info" aria-label="재생 화면 열기">
+      <span class="mini-art"><svg class="ico"><use href="#i-music"></use></svg></span>
+      <span class="mini-text"><strong id="miniTitle">선택된 곡 없음</strong><small id="miniArtist"></small></span>
+    </button>
+    <button id="miniPrev" type="button" class="mini-action" aria-label="이전 곡"><svg class="ico"><use href="#i-skip-prev"></use></svg></button>
+    <button id="miniToggle" type="button" class="mini-action" aria-label="재생 또는 일시정지"><svg class="ico"><use href="#i-play"></use></svg></button>
+  </div>
+  <nav class="mobile-nav" id="mobileNav" aria-label="메뉴">
+    <button type="button" data-view="library" class="nav-tab active" aria-current="page"><svg class="ico"><use href="#i-music"></use></svg> <span>음악</span></button>
+    <button type="button" data-view="playlists" class="nav-tab"><svg class="ico"><use href="#i-list"></use></svg> <span>플레이리스트</span></button>
+    <button type="button" data-view="player" class="nav-tab"><svg class="ico"><use href="#i-lyrics"></use></svg> <span>재생·가사</span></button>
+  </nav>
+  <div id="dialogBackdrop" class="dialog-backdrop" hidden>
+    <div class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+      <div class="dialog-head"><h2 id="dialogTitle"></h2><button type="button" id="dialogClose" aria-label="닫기">✕</button></div>
+      <p id="dialogHint" class="dialog-hint"></p>
+      <input type="text" id="dialogName" class="dialog-input" maxlength="64" autocomplete="off" placeholder="플레이리스트 이름" hidden>
+      <textarea id="dialogLyrics" class="dialog-textarea" maxlength="30000" placeholder="가사를 직접 입력하거나 붙여넣으세요.&#10;[00:12.50] 시간 표시가 있는 LRC도 지원합니다." hidden></textarea>
+      <input type="search" id="dialogSearch" class="dialog-input" placeholder="곡 검색" hidden>
+      <div id="dialogChoices" class="dialog-choices" hidden></div>
+      <div id="dialogActions" class="dialog-actions">
+        <button id="dialogCancel" type="button" class="dialog-cancel">취소</button>
+        <button id="dialogConfirm" type="button" class="dialog-confirm">저장</button>
+      </div>
+    </div>
   </div>
   <input id="fileInput" type="file" accept="audio/*,video/*,.mp3,.m4a,.wav,.flac,.ogg,.mp4,.mkv,.webm" multiple hidden>
   <audio id="browserAudio" preload="metadata" hidden></audio>

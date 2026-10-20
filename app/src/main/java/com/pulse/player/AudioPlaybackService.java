@@ -134,7 +134,7 @@ public final class AudioPlaybackService extends Service implements AudioManager.
         return START_NOT_STICKY;
     }
 
-    private List<Track> queue() {
+    private List<Track> allAudio() {
         List<Track> items = new ArrayList<>();
         try {
             JSONArray json = new JSONArray(prefs.getString("library", "[]"));
@@ -149,8 +149,36 @@ public final class AudioPlaybackService extends Service implements AudioManager.
         return items;
     }
 
+    private List<Track> queue() {
+        List<Track> library = allAudio();
+        try {
+            JSONObject data = new JSONObject(prefs.getString("collections", "{}"));
+            String selectedId = data.optString("queueId");
+            if (selectedId.isEmpty()) return library;
+            JSONArray lists = data.optJSONArray("lists");
+            if (lists == null) return library;
+            for (int i = 0; i < lists.length(); i++) {
+                JSONObject list = lists.optJSONObject(i);
+                if (list == null || !selectedId.equals(list.optString("id"))) continue;
+                JSONArray ids = list.optJSONArray("tracks");
+                List<Track> ordered = new ArrayList<>();
+                if (ids != null) for (int j = 0; j < ids.length(); j++) {
+                    String id = ids.optString(j);
+                    for (Track item : library) {
+                        if (item.id.equals(id) && !ordered.contains(item)) {
+                            ordered.add(item);
+                            break;
+                        }
+                    }
+                }
+                return ordered;
+            }
+        } catch (Exception ignored) { }
+        return library;
+    }
+
     private Track findTrack(String id) {
-        for (Track track : queue()) if (track.id.equals(id)) return track;
+        for (Track item : allAudio()) if (item.id.equals(id)) return item;
         return null;
     }
 
