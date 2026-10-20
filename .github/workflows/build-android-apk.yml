@@ -21,14 +21,28 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Install Android SDK 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install required Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDK_MANAGER="$(command -v sdkmanager || true)"
+          if [[ -z "$SDK_MANAGER" ]]; then
+            SDK_MANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)"
+          fi
+          if [[ -z "$SDK_MANAGER" || ! -x "$SDK_MANAGER" ]]; then
+            echo "::error::Android SDK manager not found on GitHub-hosted runner"
+            exit 1
+          fi
+          "$SDK_MANAGER" --install "platforms;android-35" "build-tools;35.0.0"
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Validate JavaScript
+        run: node --check app/src/main/assets/app.js
       - name: Compile debug APK
         run: gradle --no-daemon :app:assembleDebug
       - name: Upload APK
