@@ -1,0 +1,36 @@
+name: Inspect provided v1.3.1 Android code
+on:
+  push:
+    paths:
+      - 'forensics/PulsePlayer-v1.3.1.apk'
+      - '.github/workflows/inspect-v131.yml'
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Obtain official JADX decompiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/jadx.zip https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          chmod +x /tmp/jadx/bin/jadx
+      - name: Recover readable native Java from user's APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          /tmp/jadx/bin/jadx --no-res --threads-count 2 -d forensics/decompiled forensics/PulsePlayer-v1.3.1.apk
+          ls -l forensics/decompiled/sources/com/pulse/player/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PulsePlayer-v131-decompiled-java
+          path: forensics/decompiled/sources/com/pulse/player/
+          retention-days: 1
