@@ -407,7 +407,7 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
     }
 
     private List<String> queueIds(String str) {
-        JSONObject jSONObject;
+        JSONObject jSONObject = null;
         ArrayList arrayList = new ArrayList();
         JSONObject jSONObject2 = null;
         String strOptString = "";
@@ -860,7 +860,7 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
             }
         } catch (Exception ignored) {
         }
-        if (filename == null || filename.isBlank()) filename = "미디어 파일";
+        if (filename == null || filename.trim().isEmpty()) filename = "미디어 파일";
         String contentType = "";
         try {
             contentType = getContentResolver().getType(uri);
@@ -881,8 +881,8 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
             if (length != null) duration = Long.parseLong(length);
             String mediaTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
             String mediaArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-            if (mediaTitle != null && !mediaTitle.isBlank()) title = mediaTitle.trim();
-            if (mediaArtist != null && !mediaArtist.isBlank()) artist = mediaArtist.trim();
+            if (mediaTitle != null && !mediaTitle.trim().isEmpty()) title = mediaTitle.trim();
+            if (mediaArtist != null && !mediaArtist.trim().isEmpty()) artist = mediaArtist.trim();
         } catch (Exception ignored) {
         } finally {
             try { retriever.release(); } catch (Exception ignored) {}
@@ -1940,7 +1940,8 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
                                             socketAccept.close();
                                         } catch (Exception e10) {
                                         }
-                                        throw th;
+                                        MainActivity.this.authError("크롬 로그인 인증에 실패했습니다. 다시 시도해 주세요.");
+                                        return;
                                     }
                                 } catch (Exception e11) {
                                     return;
@@ -2069,7 +2070,7 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
         return strAccessTokenLocked;
     }
 
-    private String accessTokenLocked() throws Throwable {
+    private String accessTokenLocked() {
         String string = this.prefs.getString("ytAccess", "");
         long j = this.prefs.getLong("ytExpiry", 0L);
         if (string.isEmpty() || j - 60000 <= System.currentTimeMillis()) {
@@ -2092,10 +2093,12 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
                 }
                 return null;
             } catch (Exception e) {
+                return null;
             }
         } else {
             return string;
         }
+        return null;
     }
 
     /* JADX INFO: Access modifiers changed from: private */
