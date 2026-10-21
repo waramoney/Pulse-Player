@@ -37,7 +37,7 @@
   let permissionGranted = false;
   let lastScanAt = 0;
   let hiddenCount = 0;
-  let appVersion = '1.3.7';
+  let appVersion = '1.3.8';
 
   const storage = {
     get(key) { try { return localStorage.getItem(key); } catch (_) { return null; } },
@@ -340,6 +340,7 @@
     el('dialogTools').replaceChildren();
     el('dialogFilters').replaceChildren();
     el('dialogName').type = 'text';
+    el('dialogName').type = 'text';
     el('dialogName').placeholder = '플레이리스트 이름';
     el('dialogName').maxLength = 64;
     el('dialogLyrics').placeholder = '가사를 직접 입력하거나 붙여넣으세요.\n[00:12.50] 시간 표시가 있는 LRC도 지원합니다.';
@@ -532,6 +533,14 @@
     panel.appendChild(button(item.favorite ? '즐겨찾기 해제' : '즐겨찾기에 추가', 'dialog-option', () => {
       closeModal(); toggleFavorite(id);
     }, 'heart'));
+    panel.appendChild(button('목록에서 보이는 이름 변경', 'dialog-option', () => {
+      closeModal(); renameTitleDialog(id);
+    }, 'edit'));
+    if (native && has('renameOriginalFile') && (item.source === 'device' || item.source === 'import')) {
+      panel.appendChild(button('휴대폰 원본 파일명 변경', 'dialog-option', () => {
+        closeModal(); window.Android.renameOriginalFile(id);
+      }, 'edit'));
+    }
     panel.appendChild(button('플레이리스트에 담기 / 빼기', 'dialog-option', () => {
       closeModal(); addToPlaylist(id);
     }, 'list-add'));
@@ -564,6 +573,40 @@
       }, 'trash'));
     }
   }
+
+  function renameTitleDialog(id) {
+    const item = track(id);
+    if (!item) return;
+    modal('목록 표시 이름 변경', '원본 파일명은 그대로 두고 플레이리스트와 재생 화면에 표시되는 이름만 수정합니다.', '이름 저장', () => {
+      const name = el('dialogName').value.trim();
+      if (!name || name.length > 120) { toast('1~120자 이내로 입력해 주세요.'); return; }
+      if (native && has('renameDisplayName')) {
+        if (!window.Android.renameDisplayName(id, name)) { toast('이름을 저장하지 못했습니다.'); return; }
+      } else {
+        item.name = name;
+        if (isYT(item)) persistBrowserYouTube();
+      }
+      item.name = name;
+      closeModal(); renderAll(); toast('표시 이름을 바꿨습니다.');
+    });
+    el('dialogName').hidden = false;
+    el('dialogName').value = item.name || '';
+    el('dialogName').maxLength = 120;
+  }
+
+  window.onNativeMediaRenamed = (oldId, newId) => {
+    if (oldId !== newId) {
+      for (const list of collections.lists) list.tracks = list.tracks.map(id => id === oldId ? newId : id);
+      if (Object.prototype.hasOwnProperty.call(collections.lyrics, oldId)) {
+        collections.lyrics[newId] = collections.lyrics[oldId];
+        delete collections.lyrics[oldId];
+      }
+      if (currentId === oldId) currentId = newId;
+      saveCollections();
+    }
+    renderAll(); toast('원본 파일명을 변경했습니다.');
+  };
+  window.onNativeRenameFailed = message => toast(message || '원본 파일명 변경에 실패했습니다.');
 
   function toggleFavorite(id) {
     const item = track(id);
@@ -1652,6 +1695,20 @@
       }, 'folder'));
     }
     p.appendChild(button('파일 직접 추가', 'dialog-option', () => { closeModal(); importFiles(); }, 'plus'));
+    if (native) {
+      p.appendChild(button('자동 업데이트 폴더 지정 (한 번만)', 'dialog-option', () => {
+        closeModal();
+        if (has('chooseUpdateFolder')) window.Android.chooseUpdateFolder();
+      }, 'folder'));
+      p.appendChild(button('새 버전 자동 확인 · 설치', 'dialog-option', () => {
+        closeModal();
+        if (has('checkForUpdates')) window.Android.checkForUpdates();
+      }, 'refresh'));
+      p.appendChild(button('업데이트 APK 직접 선택', 'dialog-option', () => {
+        closeModal();
+        if (has('chooseUpdateApk')) window.Android.chooseUpdateApk();
+      }, 'down'));
+    }
     p.appendChild(button('Chrome에서 YouTube 로그인', 'dialog-option', () => { closeModal(); openChromeYouTube('https://www.youtube.com/'); }, 'youtube'));
     p.appendChild(button('백업 내보내기 (플레이리스트·가사·즐겨찾기·YouTube)', 'dialog-option', () => {
       const json = buildBackup();

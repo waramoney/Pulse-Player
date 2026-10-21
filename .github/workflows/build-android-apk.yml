@@ -3,19 +3,24 @@ name: Build Pulse Player APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main]
     paths-ignore:
       - 'downloads/**'
       - 'README.md'
+      - 'SIGNING_SETUP.md'
 
 permissions:
   contents: read
 
+concurrency:
+  group: pulse-android-build
+  cancel-in-progress: true
+
 jobs:
   android:
-    name: Build debug APK
+    name: Build and publish Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -36,7 +41,7 @@ jobs:
             SDK_MANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -1)"
           fi
           if [[ -z "$SDK_MANAGER" || ! -x "$SDK_MANAGER" ]]; then
-            echo "::error::Android SDK manager not found on GitHub-hosted runner"
+            echo "::error::Android SDK manager not found"
             exit 1
           fi
           "$SDK_MANAGER" --install "platforms;android-35" "build-tools;35.0.0"
@@ -44,16 +49,52 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Validate JavaScript
-        run: node --check app/src/main/assets/app.js
-      - name: Verify audio playback and in-app YouTube contracts
-        run: node tests/contract.cjs
-      - name: Compile debug APK
-        run: gradle --no-daemon :app:assembleDebug
-      - name: Upload APK
+      - name: Validate JavaScript and update contracts
+        run: |
+          node --check app/src/main/assets/app.js
+          node tests/contract.cjs
+      - name: Configure private signing, if available
+        env:
+          PULSE_RELEASE_SIGNING_JSON: ${{ secrets.PULSE_RELEASE_SIGNING_JSON }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, json, base64, pathlib
+          raw = os.environ.get('PULSE_RELEASE_SIGNING_JSON', '').strip()
+          env = pathlib.Path(os.environ['GITHUB_ENV'])
+          if not raw:
+              with env.open('a') as f: f.write('PULSE_SIGNED=false\n')
+              print('No signing secret: creating a test-only debug APK. Upgrades require a stable release signing secret.')
+          else:
+              obj = json.loads(raw)
+              file = pathlib.Path(os.environ['RUNNER_TEMP']) / 'pulse-private-release.p12'
+              file.write_bytes(base64.b64decode(obj['keystoreBase64'], validate=True))
+              os.chmod(file, 0o600)
+              for key, value in [
+                  ('PULSE_SIGNED','true'),
+                  ('PULSE_KEYSTORE_PATH',str(file)),
+                  ('PULSE_KEYSTORE_PASS',obj['storePassword']),
+                  ('PULSE_KEY_PASS',obj['keyPassword']),
+                  ('PULSE_KEY_ALIAS',obj['alias'])
+              ]:
+                  if '\n' in value or '\r' in value: raise ValueError('Invalid signing config')
+                  with env.open('a') as f: f.write(key+'='+value+'\n')
+              print('Private release signing enabled.')
+          PY
+      - name: Compile APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$PULSE_SIGNED" == "true" ]]; then
+            gradle --no-daemon :app:assembleRelease
+          else
+            gradle --no-daemon :app:assembleDebug
+          fi
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PulsePlayer-Android-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: PulsePlayer-v1.3.8-APK
+          path: app/build/outputs/apk/*/app-*.apk
           if-no-files-found: error
           retention-days: 14

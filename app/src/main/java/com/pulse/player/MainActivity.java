@@ -78,6 +78,8 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_DELETE_MEDIASTORE = 1003;
     private static final int REQUEST_DELETE_RECOVERABLE = 1004;
     private static final int REQUEST_DELETE_LEGACY_WRITE = 1005;
+    private static final int REQUEST_RENAME_MEDIASTORE = 1006;
+    private static final int REQUEST_RENAME_RECOVERABLE = 1007;
     private static final String START_URL = "https://appassets.androidplatform.net/assets/index.html";
     private static final Pattern YT_ID = Pattern.compile("^[A-Za-z0-9_-]{11}$");
     private FrameLayout browserFrame;
@@ -108,6 +110,9 @@ public final class MainActivity extends Activity {
     private String browserMode = "web";
     private String browserVideoId = "";
     private String pendingDeleteId = "";
+    private String pendingRenameId = "";
+    private String pendingRenameName = "";
+    private AppUpdateManager appUpdater;
     private final Object libraryLock = new Object();
     private final ExecutorService metadataExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService netExecutor = Executors.newSingleThreadExecutor();
@@ -128,6 +133,8 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(Color.rgb(11, 13, 21));
         getWindow().setNavigationBarColor(Color.rgb(11, 13, 21));
         createViews();
+        appUpdater = new AppUpdateManager(this);
+        appUpdater.checkForUpdates(false);
     }
 
     private void createViews() {
@@ -673,6 +680,10 @@ public final class MainActivity extends Activity {
                     JSONObject old = oldDevice.get(id);
                     if (old != null) {
                         item.put("favorite", old.optBoolean("favorite", false));
+                        if (old.optBoolean("customName", false)) {
+                            item.put("name", old.optString("name", item.optString("name")));
+                            item.put("customName", true);
+                        }
                     } else {
                         added++;
                     }
@@ -807,6 +818,22 @@ public final class MainActivity extends Activity {
     @Override // android.app.Activity
     protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
         super.onActivityResult(requestCode, resultCode, intent);
+        if (requestCode == AppUpdateManager.REQUEST_UPDATE_FOLDER || requestCode == AppUpdateManager.REQUEST_UPDATE_APK) {
+            if (appUpdater != null) appUpdater.handleSelection(requestCode, resultCode, intent);
+            return;
+        }
+        if (requestCode == REQUEST_RENAME_MEDIASTORE || requestCode == REQUEST_RENAME_RECOVERABLE) {
+            String id = pendingRenameId;
+            String name = pendingRenameName;
+            if (id.isEmpty() || name.isEmpty()) { clearPendingRename(); return; }
+            if (resultCode != Activity.RESULT_OK) {
+                clearPendingRename();
+                renameFailure("파일명 변경 승인을 취소했습니다.");
+            } else {
+                executeFileRename(id, Uri.parse(id), name);
+            }
+            return;
+        }
         if (requestCode == REQUEST_DELETE_MEDIASTORE || requestCode == REQUEST_DELETE_RECOVERABLE) {
             String id = pendingDeleteId;
             pendingDeleteId = "";
@@ -881,6 +908,177 @@ public final class MainActivity extends Activity {
                     : count + "개 파일을 라이브러리에 추가했습니다.", Toast.LENGTH_SHORT).show();
             });
         });
+    }
+
+    // Metadata-only rename is safe for any source, including YouTube bookmarks.
+    // A device filename rename is a separate, explicitly confirmed operation.
+    private boolean renameLibraryTitle(String id, String newName) {
+        if (id == null || newName == null) return false;
+        String cleaned = newName.trim();
+        if (cleaned.isEmpty() || cleaned.length() > 120 || cleaned.indexOf('\n') >= 0) return false;
+        synchronized (libraryLock) {
+            try {
+                JSONArray library = new JSONArray(readLibrary());
+                for (int i = 0; i < library.length(); i++) {
+                    JSONObject entry = library.optJSONObject(i);
+                    if (entry == null || !id.equals(entry.optString("id"))) continue;
+                    entry.put("name", cleaned);
+                    entry.put("customName", true);
+                    prefs.edit().putString("library", library.toString()).apply();
+                    pushLibraryOnUi();
+                    return true;
+                }
+            } catch (Exception ignored) { }
+        }
+        return false;
+    }
+
+    private void requestOriginalRename(String id) {
+        if (!pendingRenameId.isEmpty() || !pendingDeleteId.isEmpty()) {
+            renameFailure("파일 처리 승인 창을 먼저 완료하세요.");
+            return;
+        }
+        JSONObject item = findTrack(id);
+        if (item == null || !("device".equals(item.optString("source")) ||
+            "import".equals(item.optString("source")))) {
+            renameFailure("휴대폰의 음악·영상 파일만 이름을 변경할 수 있습니다.");
+            return;
+        }
+        Uri uri = Uri.parse(id);
+        if (!"content".equals(uri.getScheme())) {
+            renameFailure("이 파일은 원본 파일명 변경을 지원하지 않습니다. 표시명을 이용해 주세요.");
+            return;
+        }
+        String oldFile = item.optString("fileName", "");
+        final String ext = oldFile.lastIndexOf('.') > 0 ? oldFile.substring(oldFile.lastIndexOf('.')) : "";
+        final android.widget.EditText input = new android.widget.EditText(this);
+        String base = ext.isEmpty() ? oldFile : oldFile.substring(0, oldFile.length() - ext.length());
+        input.setSingleLine(true);
+        input.setText(base);
+        input.setSelectAllOnFocus(true);
+        int inset = (int)(getResources().getDisplayMetrics().density * 22);
+        android.widget.FrameLayout container = new android.widget.FrameLayout(this);
+        container.setPadding(inset, 0, inset, 0);
+        container.addView(input, new FrameLayout.LayoutParams(-1,-2));
+        new AlertDialog.Builder(this).setTitle("원본 파일명 변경")
+            .setMessage("확장자 " + (ext.isEmpty() ? "없음" : ext) + " 는 그대로 유지합니다. 파일 제공자의 승인이 필요할 수 있습니다.")
+            .setView(container).setNegativeButton("취소", (d, w) -> { })
+            .setPositiveButton("이름 변경", (d, w) -> {
+                String name = input.getText().toString().trim();
+                // Never treat file name input as a path, and do not allow extension changes.
+                if (name.isEmpty() || name.length() > 100 || name.equals(".") || name.equals("..") ||
+                    name.contains("/") || name.contains("\\") || name.contains(":") ||
+                    name.contains("\n") || name.contains("\r")) {
+                    renameFailure("파일명에는 슬래시·경로 문자를 사용할 수 없습니다.");
+                    return;
+                }
+                performOriginalRename(id, uri, name + ext);
+            }).show();
+    }
+
+    private void performOriginalRename(String id, Uri uri, String newFilename) {
+        pendingRenameId = id;
+        pendingRenameName = newFilename;
+        // For Android 11+ a system write-request grants ownership-safe access.
+        if (Build.VERSION.SDK_INT >= 30 && uri.getAuthority() != null &&
+            (uri.getAuthority().equals("media") || uri.getAuthority().equals("com.android.providers.media"))) {
+            try {
+                PendingIntent grant = MediaStore.createWriteRequest(getContentResolver(),
+                    Collections.singletonList(uri));
+                startIntentSenderForResult(grant.getIntentSender(), REQUEST_RENAME_MEDIASTORE,
+                    null, 0, 0, 0);
+            } catch (Exception e) {
+                clearPendingRename();
+                renameFailure("파일명 변경 권한 요청을 시작하지 못했습니다.");
+            }
+            return;
+        }
+        executeFileRename(id, uri, newFilename);
+    }
+
+    private void executeFileRename(String id, Uri uri, String filename) {
+        metadataExecutor.execute(() -> {
+            try {
+                Uri resultUri = uri;
+                if (DocumentsContract.isDocumentUri(this, uri)) {
+                    resultUri = DocumentsContract.renameDocument(getContentResolver(), uri, filename);
+                    if (resultUri == null) throw new IOException("문서 제공자가 이름 변경을 지원하지 않습니다.");
+                } else {
+                    android.content.ContentValues values = new android.content.ContentValues();
+                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+                    if (getContentResolver().update(uri, values, null, null) < 1)
+                        throw new IOException("원본 파일명 변경이 허용되지 않았습니다.");
+                }
+                Uri finalUri = resultUri;
+                runOnUiThread(() -> finishOriginalRename(id, finalUri.toString(), filename));
+            } catch (RecoverableSecurityException security) {
+                runOnUiThread(() -> {
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        try {
+                            startIntentSenderForResult(
+                                security.getUserAction().getActionIntent().getIntentSender(),
+                                REQUEST_RENAME_RECOVERABLE, null, 0, 0, 0);
+                        } catch (Exception e) {
+                            clearPendingRename();
+                            renameFailure("시스템 파일명 변경 승인 화면을 열 수 없습니다.");
+                        }
+                    } else {
+                        clearPendingRename();
+                        renameFailure("원본 파일명 변경 권한이 없습니다.");
+                    }
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    clearPendingRename();
+                    renameFailure("원본 파일명 변경 실패: 파일 제공자의 변경 권한을 확인하세요.");
+                });
+            }
+        });
+    }
+
+    private void finishOriginalRename(String oldId, String newId, String newFileName) {
+        clearPendingRename();
+        synchronized (libraryLock) {
+            try {
+                JSONArray arr = new JSONArray(readLibrary());
+                for (int i=0;i<arr.length();i++) {
+                    JSONObject e = arr.optJSONObject(i);
+                    if (e != null && oldId.equals(e.optString("id"))) {
+                        e.put("id", newId);
+                        e.put("fileName", newFileName);
+                        e.put("name", newFileName.replaceFirst("(?i)\\.[^/.]+$", ""));
+                        e.put("customName", true);
+                        break;
+                    }
+                }
+                prefs.edit().putString("library", arr.toString()).apply();
+                if (!oldId.equals(newId)) {
+                    JSONObject coll = new JSONObject(readCollections());
+                    JSONArray lists = coll.optJSONArray("lists");
+                    if (lists != null) for(int i=0;i<lists.length();i++) {
+                        JSONObject list=lists.optJSONObject(i);
+                        if(list==null)continue;
+                        JSONArray tracks=list.optJSONArray("tracks");
+                        if(tracks==null)continue;
+                        for(int j=0;j<tracks.length();j++)if(oldId.equals(tracks.optString(j))) tracks.put(j,newId);
+                    }
+                    JSONObject lyrics=coll.optJSONObject("lyrics");
+                    if(lyrics!=null && lyrics.has(oldId)) { lyrics.put(newId,lyrics.optString(oldId));lyrics.remove(oldId); }
+                    saveCollectionsJson(coll.toString());
+                    if(oldId.equals(prefs.getString("lastId","")))
+                        prefs.edit().putString("lastId",newId).apply();
+                }
+            } catch(Exception e) { renameFailure("이름은 바뀌었지만 라이브러리를 다시 검색해야 합니다."); }
+        }
+        pushLibrary();
+        js("window.onNativeMediaRenamed && window.onNativeMediaRenamed("+
+            JSONObject.quote(oldId)+","+JSONObject.quote(newId)+");");
+    }
+
+    private void clearPendingRename() { pendingRenameId="";pendingRenameName=""; }
+    private void renameFailure(String reason) {
+        Toast.makeText(this, reason, Toast.LENGTH_LONG).show();
+        js("window.onNativeRenameFailed && window.onNativeRenameFailed(" + JSONObject.quote(reason) + ");");
     }
 
     // Explicit native confirmation is required: JavaScript bridges in Android
@@ -2147,6 +2345,7 @@ public final class MainActivity extends Activity {
     @Override // android.app.Activity
     protected void onResume() {
         super.onResume();
+        if (appUpdater != null) appUpdater.checkForUpdates(false);
         if (this.videoActive && this.videoPausedByLifecycle) {
             this.videoPausedByLifecycle = false;
             if (this.videoPrepared) {
@@ -2168,6 +2367,7 @@ public final class MainActivity extends Activity {
         }
         this.metadataExecutor.shutdown();
         this.netExecutor.shutdown();
+        if (this.appUpdater != null) this.appUpdater.shutdown();
         if (this.browserView != null) {
             this.browserView.destroy();
             this.browserView = null;
@@ -2209,7 +2409,7 @@ public final class MainActivity extends Activity {
                 jSONObject.put("speed", MainActivity.this.prefs.getFloat("speed", 1.0f));
                 jSONObject.put("lastScan", MainActivity.this.prefs.getLong("lastScan", 0L));
                 jSONObject.put("hiddenCount", MainActivity.this.readHidden().size());
-                jSONObject.put("version", "1.3.7");
+                jSONObject.put("version", "1.3.8");
             } catch (Exception e) {
             }
             return jSONObject.toString();
@@ -2352,6 +2552,31 @@ public final class MainActivity extends Activity {
                     MainActivity.this.editTrack(str, true, false);
                 }
             });
+        }
+
+        @JavascriptInterface
+        public boolean renameDisplayName(final String id, final String name) {
+            return MainActivity.this.renameLibraryTitle(id, name);
+        }
+
+        @JavascriptInterface
+        public void renameOriginalFile(final String id) {
+            MainActivity.this.runOnUiThread(() -> MainActivity.this.requestOriginalRename(id));
+        }
+
+        @JavascriptInterface
+        public void checkForUpdates() {
+            MainActivity.this.runOnUiThread(() -> MainActivity.this.appUpdater.checkForUpdates(true));
+        }
+
+        @JavascriptInterface
+        public void chooseUpdateFolder() {
+            MainActivity.this.runOnUiThread(() -> MainActivity.this.appUpdater.selectUpdateFolder());
+        }
+
+        @JavascriptInterface
+        public void chooseUpdateApk() {
+            MainActivity.this.runOnUiThread(() -> MainActivity.this.appUpdater.selectUpdateApk());
         }
 
         @JavascriptInterface

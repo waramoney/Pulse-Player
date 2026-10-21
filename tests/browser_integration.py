@@ -29,6 +29,12 @@ setup_js=r'''(() => {
    const i=audio.find(x=>x.id===id);if(i){i.favorite=!i.favorite;window.calls.push(['favorite',id,i.favorite]);}
   },
   deleteOriginal:id=>window.calls.push(['deleteOriginal',id]),
+  renameDisplayName:(id,name)=>{const i=audio.find(x=>x.id===id);if(!i)return false;
+   i.name=name; window.calls.push(['renameDisplayName',id,name]); return true;},
+  renameOriginalFile:id=>window.calls.push(['renameOriginalFile',id]),
+  chooseUpdateFolder:()=>window.calls.push(['chooseUpdateFolder']),
+  checkForUpdates:()=>window.calls.push(['checkForUpdates']),
+  chooseUpdateApk:()=>window.calls.push(['chooseUpdateApk']),
   openBrowser:(u,t)=>window.calls.push(['openBrowser',u,t]),
   openChrome:u=>window.calls.push(['chrome',u]),importFiles:()=>{},
   downloadDirectMedia:()=>{},getClipboard:()=>'',
@@ -56,6 +62,23 @@ with sync_playwright() as playwright:
  page.evaluate("document.dispatchEvent(new Event('DOMContentLoaded'))")
  page.get_by_role('button',name='테스트 음악 재생').click()
  assert ['play','content://media/external/audio/media/42'] in page.evaluate('window.calls'), 'library playback must use play not stale toggle'
+ # A title edit must stay in the local metadata; it must not rename/delete the source file.
+ page.get_by_role('button',name='라이브러리',exact=True).last.click()
+ page.get_by_role('button',name='테스트 음악 더보기').click()
+ page.get_by_role('button',name='목록에서 보이는 이름 변경').click()
+ page.locator('#dialogName').fill('내가 바꾼 노래 이름')
+ page.locator('#dialogConfirm').click()
+ assert ['renameDisplayName','content://media/external/audio/media/42','내가 바꾼 노래 이름'] in page.evaluate('window.calls')
+ assert page.get_by_role('button',name='내가 바꾼 노래 이름 재생').count()==1
+ # Rename it back for the original deletion regression.
+ page.get_by_role('button',name='내가 바꾼 노래 이름 더보기').click()
+ page.get_by_role('button',name='목록에서 보이는 이름 변경').click()
+ page.locator('#dialogName').fill('테스트 음악')
+ page.locator('#dialogConfirm').click()
+ page.get_by_role('button',name='테스트 음악 더보기').click()
+ page.get_by_role('button',name='휴대폰 원본 파일명 변경').click()
+ assert ['renameOriginalFile','content://media/external/audio/media/42'] in page.evaluate('window.calls')
+
  # Actual file delete is separate from hide and does NOT drop the library until OS approval.
  page.get_by_role('button',name='라이브러리',exact=True).last.click()
  page.get_by_role('button',name='테스트 음악 더보기').click()
@@ -95,7 +118,7 @@ with sync_playwright() as playwright:
  page.locator('#ytInlineClose').click()
  assert page.locator('#ytInlinePlayer').is_hidden() and not page.locator('#ytInlineFrame').get_attribute('src'), 'close should unload video iframe'
  # In-app YouTube browsing and explicit in-app fallback are separate from Chrome login.
- page.get_by_role('button',name='테스트 유튜브 영상 재생').click()
+ page.get_by_role('button',name='테스트 유튜브 영상 재생').evaluate('(el) => el.click()')
  page.locator('#ytInlineAlternate').click()
  assert any(x[0]=='openBrowser' and x[2]=='youtube-watch' and 'watch?v=dQw4w9WgXcQ' in x[1] for x in page.evaluate('window.calls')), 'alternate playback must stay in app'
  assert not page.locator('#ytInlinePlayer').is_visible()
@@ -109,6 +132,16 @@ with sync_playwright() as playwright:
  page.get_by_role('button', name='Chrome에서 열기 / 로그인').click()
  assert any(x[0]=='chrome' and 'youtube.com' in x[1] for x in page.evaluate('window.calls')), 'Only the explicit Chrome login launches Chrome'
  assert page.locator('#ytInlinePlayer').is_hidden(), 'Chrome login closes embedded video'
+ page.locator('#topSettings').click()
+ page.get_by_role('button',name='자동 업데이트 폴더 지정 (한 번만)').click()
+ assert ['chooseUpdateFolder'] in page.evaluate('window.calls')
+ page.locator('#topSettings').click()
+ page.get_by_role('button',name='새 버전 자동 확인 · 설치').click()
+ assert ['checkForUpdates'] in page.evaluate('window.calls')
+ page.locator('#topSettings').click()
+ page.get_by_role('button',name='업데이트 APK 직접 선택').click()
+ assert ['chooseUpdateApk'] in page.evaluate('window.calls')
+
  assert not errors, 'Browser JavaScript errors: '+str(errors)
  print('PASS browser: local audio, in-app YouTube embed and watch, PiP, save/favorite, playlist, Chrome opt-in, unload')
  browser.close()

@@ -1,0 +1,144 @@
+{
+  "version": "1.3.8",
+  "build_type": "source",
+  "update_delivery": "on-device SAF folder, no network",
+  "signing": "requires stable personal release key for in-place upgrades",
+  "generated": "2026-10-22",
+  "files": [
+    {
+      "path": ".github/workflows/build-android-apk.yml",
+      "sha256": "b81a67de47904a8cbf79ce034025c5bb8b2c5e9aa18a053a01b43c41b08512a3",
+      "bytes": 3606
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "3d459d6190d77b4c8c2e4dcaa650556bc0259953eef3abb1dc3a669302888f49",
+      "bytes": 59
+    },
+    {
+      "path": "README.md",
+      "sha256": "ca94f4565ce3f06fffb1736ca5ad817dacb8ad0e354e5c37cc002b083c945f7f",
+      "bytes": 4000
+    },
+    {
+      "path": "SIGNING_SETUP.md",
+      "sha256": "61a16083d452845f8a4a367877f742e7928ca2c7cf2874a121d1c28d8b62673e",
+      "bytes": 2911
+    },
+    {
+      "path": "app/build.gradle",
+      "sha256": "a282b30ccb8dc3306fe1817b8452bef193556f466221de804164d7a3a705fd7a",
+      "bytes": 1049
+    },
+    {
+      "path": "app/src/main/AndroidManifest.xml",
+      "sha256": "4757beca9952d38dea45405a41090f31ccbc6698197310260baa1176e0ae9cbe",
+      "bytes": 2643
+    },
+    {
+      "path": "app/src/main/assets/app.css",
+      "sha256": "716495eea7ad5a39a7a9e3d8f65d0db2fc2fa027673bde5b0a4ccd73842d32be",
+      "bytes": 40253
+    },
+    {
+      "path": "app/src/main/assets/app.js",
+      "sha256": "e80b8311fa2866d4cbca02c84c8ce408b9de10be98a7236f6f7f2c71689f4b63",
+      "bytes": 89807
+    },
+    {
+      "path": "app/src/main/assets/index.html",
+      "sha256": "6c046c45230460eb59cee760d5718c60936d12cd94d02ca78bd921d45a933b9a",
+      "bytes": 21572
+    },
+    {
+      "path": "app/src/main/java/com/pulse/player/AppUpdateManager.java",
+      "sha256": "d9c0998aa2bc2ad8a2ee9dfb9aa50571fe2b4e49231c2a0a96bdd608294899e2",
+      "bytes": 14260
+    },
+    {
+      "path": "app/src/main/java/com/pulse/player/AudioPlaybackService.java",
+      "sha256": "94fa4e744411b816cb0a59b7a81762ec28c311b9f546282fac3b204771d11f32",
+      "bytes": 23406
+    },
+    {
+      "path": "app/src/main/java/com/pulse/player/MainActivity.java",
+      "sha256": "24a9e33c2676c4716ac7b151abdd1477f8c3b2af9d3e454634daadc046f71135",
+      "bytes": 134759
+    },
+    {
+      "path": "app/src/main/java/com/pulse/player/UpdateApkProvider.java",
+      "sha256": "587cd7e8d861d36dfd3fa587e402bec4a36c9ba1c6dd46fb3f1d135009528158",
+      "bytes": 2714
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_notification.xml",
+      "sha256": "339f0d9c3a48c87b2cc21719e94cd94c258c8608c0190aa0fb1a0baa7861c6f1",
+      "bytes": 265
+    },
+    {
+      "path": "app/src/main/res/mipmap-hdpi/ic_launcher.png",
+      "sha256": "420e211a471a4a37ffc02965936d9cb3e2733c0294fb82bc286ebdf15f39f83f",
+      "bytes": 1527
+    },
+    {
+      "path": "app/src/main/res/mipmap-mdpi/ic_launcher.png",
+      "sha256": "52fb960ad155860e500f00c916c9762ab421d2e3309a4fb24f35adfb0aa06a81",
+      "bytes": 1076
+    },
+    {
+      "path": "app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+      "sha256": "5f2176087c26806767ee365fc919069e21c72fb30c7b3822417acbb995ad8dcf",
+      "bytes": 2048
+    },
+    {
+      "path": "app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+      "sha256": "5781cf9b91d6763b0f8a9ebf92e4730090007046570fd0be2594c71a1aaff033",
+      "bytes": 3089
+    },
+    {
+      "path": "app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+      "sha256": "a835a0a65ada35eab6ee88a1f4c388f08b09e634082c5fdad7c24e0d680a9806",
+      "bytes": 4300
+    },
+    {
+      "path": "app/src/main/res/values/strings.xml",
+      "sha256": "1f831f965cfd7f64f7c9269ce9703244e3256ada978ace29c6fe021a73f0dd37",
+      "bytes": 75
+    },
+    {
+      "path": "app/src/main/res/values/styles.xml",
+      "sha256": "fcfcf235a2cef38407c5584e2643db1553ae4cfac32af8f2f315a8ef7ad60de9",
+      "bytes": 611
+    },
+    {
+      "path": "build.gradle",
+      "sha256": "c3c0cf04da0fc239f391c774554d97d890018ab6e37e87cc62f6070d0c8c9909",
+      "bytes": 73
+    },
+    {
+      "path": "gradle/wrapper/gradle-wrapper.properties",
+      "sha256": "3d91f0932da99885c41e9dc4e85c9f9a2d3bfef4f0ad87473014dc0827a94884",
+      "bytes": 250
+    },
+    {
+      "path": "gradle.properties",
+      "sha256": "4d4c82226865844bdc85391d907a383da4a35d3a3f5348985d5ec3997ab932fe",
+      "bytes": 76
+    },
+    {
+      "path": "settings.gradle",
+      "sha256": "0bbf08948bf46974a08169530d9c6db4db14dc9afbc8641ee1d19cc71e3c5e58",
+      "bytes": 328
+    },
+    {
+      "path": "tests/browser_integration.py",
+      "sha256": "50a9443db2a45fc272e74fd6a1576932488c54a9d1deb766ce28aa332b2d4f08",
+      "bytes": 10695
+    },
+    {
+      "path": "tests/contract.cjs",
+      "sha256": "1926692bf441b25e2a9803db1083efbd327efa74223a31093a126e3065e16b98",
+      "bytes": 7437
+    }
+  ]
+}
