@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0b0d15">
   <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Pulse Player · 음악 & 동영상</title>
   <link rel="stylesheet" href="app.css">
 </head>
@@ -13,6 +14,7 @@
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><path d="M9 18c0 1.7-1.8 3-4 3s-4-1.3-4-3 1.8-3 4-3 4 1.3 4 3Zm11-2c0 1.7-1.8 3-4 3s-4-1.3-4-3 1.8-3 4-3 4 1.3 4 3Z" transform="translate(1 -1) scale(.96)"/></symbol>
     <symbol id="i-video" viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="15" rx="3"/><path d="m10 9 5 3-5 3Z"/></symbol>
+    <symbol id="i-youtube" viewBox="0 0 24 24"><path d="M21.6 7.2a2.6 2.6 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4a2.6 2.6 0 0 0-1.8 1.8C2 8.8 2 12 2 12s0 3.2.4 4.8a2.6 2.6 0 0 0 1.8 1.8c1.6.4 7.8.4 7.8.4s6.2 0 7.8-.4a2.6 2.6 0 0 0 1.8-1.8c.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8Z"/><path d="m10 9.2 5 2.8-5 2.8Z"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.6" cy="10.6" r="6.6"/><path d="m16 16 5 5"/></symbol>
     <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.8 7.4a4.7 4.7 0 0 0-8-3.1L12 5l-.8-.7a4.7 4.7 0 0 0-8 3.1c0 4.4 4.5 7.9 8.8 11.4 4.3-3.5 8.8-7 8.8-11.4Z" transform="translate(0 1.5)"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z" stroke-linejoin="round"/></symbol>
@@ -21,7 +23,6 @@
     <symbol id="i-skip-next" viewBox="0 0 24 24"><path d="M19 5v14M5 5l12 7-12 7V5Z"/></symbol>
     <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M3 6h3c5 0 7 12 12 12h3m-4-4 4 4-4 4M3 18h3c2.5 0 4-2.6 5.5-5.2M14 9c1-1.9 2.2-3 4-3h3m-4-4 4 4-4 4"/></symbol>
     <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3"/></symbol>
-    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m4 0-1 14H6L5 7m5 4v6m4-6v6"/></symbol>
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
@@ -33,7 +34,15 @@
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l5-1 11-11a2 2 0 0 0-5-5L4 14v6Z"/></symbol>
     <symbol id="i-up" viewBox="0 0 24 24"><path d="m5 15 7-7 7 7"/></symbol>
     <symbol id="i-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
-    <symbol id="i-fullscreen" viewBox="0 0 24 24"><path d="M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5M20 20v-4h-4"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+    <symbol id="i-paste" viewBox="0 0 24 24"><path d="M9 4h6v3H9zM8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M8 12h8M8 16h5"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18h2"/></symbol>
   </svg>
 
   <div class="page-glow" aria-hidden="true"></div>
@@ -43,27 +52,28 @@
         <span class="brand-symbol"><span></span><span></span><span></span></span>
         <div><strong>PULSE<span>PLAYER</span></strong><small>MY MEDIA. MY VIBE.</small></div>
       </div>
-      <button class="top-add" id="topAdd" aria-label="음악 또는 영상 추가" title="음악 또는 영상 추가">
-        <svg class="ico"><use href="#i-plus"></use></svg>
-      </button>
+      <div class="top-actions">
+        <button class="top-add ghost" id="topSettings" aria-label="설정 및 백업" title="설정 및 백업"><svg class="ico"><use href="#i-settings"></use></svg></button>
+        <button class="top-add" id="topAdd" aria-label="음악 또는 영상 추가" title="음악 또는 영상 추가"><svg class="ico"><use href="#i-plus"></use></svg></button>
+      </div>
     </header>
 
     <div class="desktop-grid">
       <main class="left-column">
         <section class="intro" aria-label="소개">
-          <div class="intro-label"><span class="status-dot"></span> MY OFFLINE PLAYLIST</div>
+          <div class="intro-label"><span class="status-dot"></span> MY MEDIA · YOUTUBE</div>
           <h1>내 음악과 영상을<br><em>한곳에서.</em></h1>
-          <p>좋아하는 순간을, 언제 어디서든.</p>
+          <p>기기 속 음악·영상과 YouTube를 한 앱에서.</p>
         </section>
 
         <section class="player" aria-labelledby="now-heading">
           <div class="player-top">
             <div class="playing-badge"><span class="mini-eq" id="miniEqualizer"><i></i><i></i><i></i></span> NOW PLAYING</div>
-            <span class="offline-label">● 100% OFFLINE</span>
+            <span class="offline-label" id="sourceLabel">● OFFLINE</span>
           </div>
 
           <div class="player-modes" role="tablist" aria-label="재생 화면 표시">
-            <button type="button" class="player-mode active" id="artworkTab" role="tab" aria-selected="true"><svg class="ico"><use href="#i-music"></use></svg> 음악</button>
+            <button type="button" class="player-mode active" id="artworkTab" role="tab" aria-selected="true"><svg class="ico"><use href="#i-music"></use></svg> <span id="artworkTabLabel">음악</span></button>
             <button type="button" class="player-mode" id="lyricsTab" role="tab" aria-selected="false"><svg class="ico"><use href="#i-lyrics"></use></svg> 가사</button>
             <button type="button" id="editLyrics" class="lyrics-edit-shortcut"><svg class="ico"><use href="#i-edit"></use></svg> 가사 편집</button>
           </div>
@@ -105,7 +115,17 @@
           </div>
           <div class="player-footer">
             <span class="footer-hint"><svg class="ico"><use href="#i-headphones"></use></svg> <span id="footerHint">기기에서 직접 재생</span></span>
-            <button class="speed" id="speed" aria-label="재생 속도 변경">1.0× <svg class="ico"><use href="#i-chevron"></use></svg></button>
+            <label class="speed-field" for="speed">배속
+              <select class="speed" id="speed" aria-label="음악 및 영상 재생 속도 선택">
+                <option value="0.5">0.5×</option>
+                <option value="0.75">0.75×</option>
+                <option value="1" selected>1.0×</option>
+                <option value="1.25">1.25×</option>
+                <option value="1.5">1.5×</option>
+                <option value="1.75">1.75×</option>
+                <option value="2">2.0×</option>
+              </select>
+            </label>
           </div>
         </section>
       </main>
@@ -121,54 +141,108 @@
             <div class="playlist-tools-label"><strong id="selectedPlaylistName"></strong><span id="selectedPlaylistCount"></span></div>
             <div class="playlist-tool-buttons">
               <button id="playlistPlay" type="button" class="tool-primary">▶ 전체 재생</button>
+              <button id="playlistShuffle" type="button">🔀 셔플 재생</button>
               <button id="addPlaylistTracks" type="button">+ 곡 담기</button>
+              <button id="reorderPlaylist" type="button">↕ 순서 편집</button>
               <button id="renamePlaylist" type="button">이름 변경</button>
               <button id="deletePlaylist" type="button">삭제</button>
             </div>
           </div>
         </section>
         <div class="library-top">
-          <div><p class="section-label">MY COLLECTION</p><h2 id="libraryTitle"><span class="library-heading" id="libraryHeading">내 라이브러리</span> <span id="mediaCount">0</span></h2></div>
-          <button id="libraryAdd" class="add-button"><svg class="ico"><use href="#i-plus"></use></svg> 파일 추가</button>
+          <div><p class="section-label" id="librarySectionLabel">MY COLLECTION</p><h2 id="libraryTitle"><span class="library-heading" id="libraryHeading">내 라이브러리</span> <span id="mediaCount">0</span></h2></div>
+          <div class="library-top-actions">
+            <button id="deviceRescan" class="icon-button" type="button" aria-label="기기 미디어 다시 불러오기" title="기기 미디어 다시 불러오기"><svg class="ico"><use href="#i-refresh"></use></svg></button>
+            <button id="libraryAdd" class="add-button"><svg class="ico"><use href="#i-plus"></use></svg> 파일 추가</button>
+          </div>
+        </div>
+
+        <div class="device-banner" id="deviceBanner" hidden>
+          <span class="device-banner-icon"><svg class="ico"><use href="#i-phone"></use></svg></span>
+          <div class="device-banner-text"><strong id="deviceBannerTitle">기기의 음악·영상 불러오기</strong><small id="deviceBannerText">휴대폰에 저장된 음악과 영상을 자동으로 찾아 음악·영상으로 나눠 보여드려요.</small></div>
+          <button id="deviceBannerButton" type="button">허용하고 불러오기</button>
         </div>
 
         <div class="search-wrap">
           <svg class="ico"><use href="#i-search"></use></svg>
-          <input type="search" id="search" placeholder="음악, 영상 검색" autocomplete="off" aria-label="음악, 영상 검색">
+          <input type="search" id="search" placeholder="음악, 영상, YouTube 검색" autocomplete="off" aria-label="라이브러리 검색">
           <kbd id="searchCount" hidden>0개</kbd>
         </div>
         <div class="filter-row" role="tablist" aria-label="미디어 종류">
-          <button class="filter active" data-filter="all" role="tab" aria-selected="true">전체 <span id="allCount">0</span></button>
-          <button class="filter" data-filter="audio" role="tab" aria-selected="false">음악 <span id="musicCount">0</span></button>
-          <button class="filter" data-filter="video" role="tab" aria-selected="false">영상 <span id="videoCount">0</span></button>
-          <button class="filter" data-filter="favorite" role="tab" aria-selected="false"><svg class="ico"><use href="#i-heart"></use></svg> 즐겨찾기</button>
+          <button class="filter active" data-filter="all" role="tab" aria-selected="true">홈</button>
+          <button class="filter" data-filter="audio" role="tab" aria-selected="false"><svg class="ico"><use href="#i-music"></use></svg> 음악 <span id="musicCount">0</span></button>
+          <button class="filter" data-filter="video" role="tab" aria-selected="false"><svg class="ico"><use href="#i-video"></use></svg> 영상 <span id="videoCount">0</span></button>
+          <button class="filter" data-filter="youtube" role="tab" aria-selected="false"><svg class="ico"><use href="#i-youtube"></use></svg> YouTube <span id="youtubeCount">0</span></button>
+          <button class="filter" data-filter="favorite" role="tab" aria-selected="false"><svg class="ico"><use href="#i-heart"></use></svg> 즐겨찾기 <span id="favoriteCount">0</span></button>
         </div>
+        <section class="yt-panel" id="ytPanel" hidden aria-label="YouTube">
+          <div class="yt-account" id="ytAccount" hidden></div>
+          <form class="yt-search" id="ytForm">
+            <svg class="ico yt-logo"><use href="#i-youtube"></use></svg>
+            <input type="search" id="ytQuery" placeholder="YouTube 검색어 또는 링크" autocomplete="off" enterkeyhint="search" aria-label="YouTube 검색어 또는 링크">
+            <button type="submit">검색</button>
+          </form>
+          <div class="yt-quick">
+            <button type="button" id="ytBrowse"><svg class="ico"><use href="#i-globe"></use></svg> YouTube 둘러보기</button>
+            <button type="button" id="ytPaste"><svg class="ico"><use href="#i-paste"></use></svg> 복사한 링크 추가</button>
+            <button type="button" id="ytKey"><svg class="ico"><use href="#i-settings"></use></svg> 앱 내 검색 설정</button>
+          </div>
+          <div class="yt-results" id="ytResults"></div>
+          <p class="yt-note" id="ytNote">YouTube에서 원하는 영상을 연 뒤 <b>♡ 즐겨찾기</b>, <b>＋ 담기</b> 또는 <b>▶ 앱에서 재생</b>을 누르세요. 영상은 기존 플레이리스트와 즐겨찾기에서 관리할 수 있어요.</p>
+        </section>
+        <div class="sort-row">
+          <label class="sort-select"><svg class="ico"><use href="#i-sort"></use></svg>
+            <select id="sortSelect" aria-label="정렬 방식">
+              <option value="recent">최신순</option>
+              <option value="old">오래된순</option>
+              <option value="ko">가나다순</option>
+              <option value="en">ABC순</option>
+            </select>
+          </label>
+          <span class="sort-summary" id="sortSummary"></span>
+        </div>
+
+
         <div id="trackList" class="track-list" aria-live="polite"></div>
-        <div class="library-footer"><svg class="ico"><use href="#i-folder"></use></svg> 파일은 서버에 업로드되지 않아요.</div>
+        <div class="library-footer"><svg class="ico"><use href="#i-folder"></use></svg> 파일은 서버에 업로드되지 않아요. YouTube 영상은 YouTube 공식 플레이어로 재생됩니다.</div>
       </section>
     </div>
-    <footer class="site-footer"><span>Ⓟ PULSE PLAYER</span><span>PRIVATE • OFFLINE • YOURS</span></footer>
+    <footer class="site-footer"><span>Ⓟ PULSE PLAYER 1.3.2</span><span>PRIVATE • YOURS</span></footer>
   </div>
+
+  <div id="ytDock" class="yt-dock" hidden>
+    <div class="yt-dock-bar">
+      <button type="button" id="ytDockExpand" aria-label="재생 화면 열기"><svg class="ico"><use href="#i-expand"></use></svg></button>
+      <button type="button" id="ytDockClose" aria-label="YouTube 재생 닫기"><svg class="ico"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="yt-frame-wrap"><div id="ytFrame"></div></div>
+  </div>
+
   <div id="miniPlayer" class="mini-player" hidden>
     <button id="miniInfo" type="button" class="mini-info" aria-label="재생 화면 열기">
-      <span class="mini-art"><svg class="ico"><use href="#i-music"></use></svg></span>
+      <span class="mini-art" id="miniArt"><svg class="ico"><use href="#i-music"></use></svg></span>
       <span class="mini-text"><strong id="miniTitle">선택된 곡 없음</strong><small id="miniArtist"></small></span>
     </button>
     <button id="miniPrev" type="button" class="mini-action" aria-label="이전 곡"><svg class="ico"><use href="#i-skip-prev"></use></svg></button>
     <button id="miniToggle" type="button" class="mini-action" aria-label="재생 또는 일시정지"><svg class="ico"><use href="#i-play"></use></svg></button>
+    <button id="miniNext" type="button" class="mini-action" aria-label="다음 곡"><svg class="ico"><use href="#i-skip-next"></use></svg></button>
   </div>
   <nav class="mobile-nav" id="mobileNav" aria-label="메뉴">
-    <button type="button" data-view="library" class="nav-tab active" aria-current="page"><svg class="ico"><use href="#i-music"></use></svg> <span>음악</span></button>
-    <button type="button" data-view="playlists" class="nav-tab"><svg class="ico"><use href="#i-list"></use></svg> <span>플레이리스트</span></button>
-    <button type="button" data-view="player" class="nav-tab"><svg class="ico"><use href="#i-lyrics"></use></svg> <span>재생·가사</span></button>
+    <button type="button" data-nav="library" class="nav-tab active" aria-current="page"><svg class="ico"><use href="#i-music"></use></svg> <span>라이브러리</span></button>
+    <button type="button" data-nav="playlists" class="nav-tab"><svg class="ico"><use href="#i-list"></use></svg> <span>플레이리스트</span></button>
+    <button type="button" data-nav="youtube" class="nav-tab"><svg class="ico"><use href="#i-youtube"></use></svg> <span>YouTube</span></button>
+    <button type="button" data-nav="player" class="nav-tab"><svg class="ico"><use href="#i-lyrics"></use></svg> <span>재생·가사</span></button>
   </nav>
   <div id="dialogBackdrop" class="dialog-backdrop" hidden>
     <div class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
       <div class="dialog-head"><h2 id="dialogTitle"></h2><button type="button" id="dialogClose" aria-label="닫기">✕</button></div>
       <p id="dialogHint" class="dialog-hint"></p>
-      <input type="text" id="dialogName" class="dialog-input" maxlength="64" autocomplete="off" placeholder="플레이리스트 이름" hidden>
+      <input type="text" id="dialogName" class="dialog-input" maxlength="300" autocomplete="off" placeholder="플레이리스트 이름" hidden>
+      <input type="text" id="dialogSecret" class="dialog-input secret" maxlength="200" autocomplete="off" placeholder="클라이언트 보안 비밀 (GOCSPX-…)" hidden>
+      <div id="dialogTools" class="dialog-tools" hidden></div>
       <textarea id="dialogLyrics" class="dialog-textarea" maxlength="30000" placeholder="가사를 직접 입력하거나 붙여넣으세요.&#10;[00:12.50] 시간 표시가 있는 LRC도 지원합니다." hidden></textarea>
       <input type="search" id="dialogSearch" class="dialog-input" placeholder="곡 검색" hidden>
+      <div id="dialogFilters" class="dialog-filters" hidden></div>
       <div id="dialogChoices" class="dialog-choices" hidden></div>
       <div id="dialogActions" class="dialog-actions">
         <button id="dialogCancel" type="button" class="dialog-cancel">취소</button>

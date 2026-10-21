@@ -10,8 +10,8 @@ android {
         applicationId 'com.pulse.player'
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName '1.1.0'
+        versionCode 132
+        versionName '1.3.2'
     }
     buildTypes {
         release {

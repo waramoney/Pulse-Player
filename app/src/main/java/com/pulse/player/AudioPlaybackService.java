@@ -5,7 +5,6 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.media.AudioAttributes;
@@ -16,58 +15,51 @@ import android.media.MediaPlayer;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.net.Uri;
-import android.os.Build;
 import android.os.IBinder;
 import android.os.SystemClock;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-/**
- * Native audio playback (including screen-off playback), without network or third-party SDKs.
- * Commands arrive from the local-only WebView bridge or Android media notification.
- */
+/* JADX INFO: loaded from: classes2.dex */
 public final class AudioPlaybackService extends Service implements AudioManager.OnAudioFocusChangeListener {
-    public static final String ACT_PLAY = "com.pulse.player.PLAY";
-    public static final String ACT_PAUSE = "com.pulse.player.PAUSE";
-    public static final String ACT_RESUME = "com.pulse.player.RESUME";
-    public static final String ACT_TOGGLE = "com.pulse.player.TOGGLE";
     public static final String ACT_NEXT = "com.pulse.player.NEXT";
-    public static final String ACT_PREVIOUS = "com.pulse.player.PREVIOUS";
-    public static final String ACT_SEEK = "com.pulse.player.SEEK";
     public static final String ACT_OPTIONS = "com.pulse.player.OPTIONS";
+    public static final String ACT_PAUSE = "com.pulse.player.PAUSE";
+    public static final String ACT_PLAY = "com.pulse.player.PLAY";
+    public static final String ACT_PREVIOUS = "com.pulse.player.PREVIOUS";
+    public static final String ACT_RESUME = "com.pulse.player.RESUME";
+    public static final String ACT_SEEK = "com.pulse.player.SEEK";
     public static final String ACT_STOP = "com.pulse.player.STOP";
-
-    public static AudioPlaybackService instance;
+    public static final String ACT_TOGGLE = "com.pulse.player.TOGGLE";
     private static final String CHANNEL_ID = "pulse_audio_playback";
     private static final int NOTIFICATION_ID = 42;
-
-    private final Random random = new Random();
-    private MediaPlayer player;
-    private MediaSession mediaSession;
+    public static AudioPlaybackService instance;
     private AudioManager audioManager;
     private AudioFocusRequest focusRequest;
+    private boolean foreground;
+    private MediaSession mediaSession;
+    private boolean playWhenPrepared;
+    private MediaPlayer player;
     private SharedPreferences prefs;
+    private boolean prepared;
+    private boolean preparing;
+    private int repeat;
+    private boolean shuffle;
+    private float speed;
+    private final Random random = new Random();
     private String currentId = "";
     private String currentTitle = "Pulse Player";
     private String currentArtist = "내 음악";
-    private boolean prepared;
-    private boolean preparing;
-    private boolean playWhenPrepared;
-    private boolean foreground;
-    private boolean shuffle;
-    private int repeat; // 0 none, 1 all, 2 one
-    private float speed;
     private String playbackError = "";
 
     private static final class Track {
+        String artist;
         String id;
         String title;
-        String artist;
+
         Track(String id, String title, String artist) {
             this.id = id;
             this.title = title;
@@ -75,243 +67,364 @@ public final class AudioPlaybackService extends Service implements AudioManager.
         }
     }
 
-    @Override public void onCreate() {
+    @Override // android.app.Service
+    public void onCreate() {
         super.onCreate();
         instance = this;
-        prefs = getSharedPreferences("pulse", MODE_PRIVATE);
-        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        this.prefs = getSharedPreferences("pulse", 0);
+        this.audioManager = (AudioManager) getSystemService("audio");
         readOptions();
-        NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, "음악 재생", NotificationManager.IMPORTANCE_LOW);
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "음악 재생", 2);
         channel.setDescription("백그라운드 음악 재생 컨트롤");
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(channel);
-        mediaSession = new MediaSession(this, "PulsePlayback");
-        mediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS | MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
-        mediaSession.setCallback(new MediaSession.Callback() {
-            @Override public void onPlay() { resumeTrack(); }
-            @Override public void onPause() { pauseTrack(); }
-            @Override public void onSkipToNext() { skip(1, false); }
-            @Override public void onSkipToPrevious() { skip(-1, false); }
-            @Override public void onSeekTo(long pos) { seek((int) pos); }
-            @Override public void onStop() { stopSelf(); }
+        ((NotificationManager) getSystemService("notification")).createNotificationChannel(channel);
+        this.mediaSession = new MediaSession(this, "PulsePlayback");
+        this.mediaSession.setFlags(3);
+        this.mediaSession.setCallback(new MediaSession.Callback() { // from class: com.pulse.player.AudioPlaybackService.1
+            @Override // android.media.session.MediaSession.Callback
+            public void onPlay() {
+                AudioPlaybackService.this.resumeTrack();
+            }
+
+            @Override // android.media.session.MediaSession.Callback
+            public void onPause() {
+                AudioPlaybackService.this.pauseTrack();
+            }
+
+            @Override // android.media.session.MediaSession.Callback
+            public void onSkipToNext() {
+                AudioPlaybackService.this.skip(1, false);
+            }
+
+            @Override // android.media.session.MediaSession.Callback
+            public void onSkipToPrevious() {
+                AudioPlaybackService.this.skip(-1, false);
+            }
+
+            @Override // android.media.session.MediaSession.Callback
+            public void onSeekTo(long pos) {
+                AudioPlaybackService.this.seek((int) pos);
+            }
+
+            @Override // android.media.session.MediaSession.Callback
+            public void onStop() {
+                AudioPlaybackService.this.stopSelf();
+            }
         });
-        mediaSession.setActive(true);
+        this.mediaSession.setActive(true);
         syncMediaSession();
     }
 
     private void readOptions() {
-        shuffle = prefs.getBoolean("shuffle", false);
-        repeat = prefs.getInt("repeat", 0);
-        speed = Math.max(.5f, Math.min(2f, prefs.getFloat("speed", 1f)));
+        this.shuffle = this.prefs.getBoolean("shuffle", false);
+        this.repeat = this.prefs.getInt("repeat", 0);
+        this.speed = Math.max(0.5f, Math.min(2.0f, this.prefs.getFloat("speed", 1.0f)));
     }
 
-    @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) return currentId.isEmpty() ? START_NOT_STICKY : START_STICKY;
+    /* JADX WARN: Can't fix incorrect switch cases order, some code will duplicate */
+    @Override // android.app.Service
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent == null) {
+            return this.currentId.isEmpty() ? 2 : 1;
+        }
         String action = intent.getAction();
-        if (action == null) return START_NOT_STICKY;
+        if (action == null) {
+            return 2;
+        }
         switch (action) {
-            case ACT_PLAY:
+            case "com.pulse.player.PLAY":
                 String id = intent.getStringExtra("id");
-                if (id != null && !id.isEmpty()) playTrack(id);
-                break;
-            case ACT_TOGGLE:
-                if (isPlaying()) pauseTrack(); else resumeTrack();
-                break;
-            case ACT_PAUSE: pauseTrack(); break;
-            case ACT_RESUME: resumeTrack(); break;
-            case ACT_NEXT: skip(1, false); break;
-            case ACT_PREVIOUS: skip(-1, false); break;
-            case ACT_SEEK: seek(intent.getIntExtra("position", 0)); break;
-            case ACT_OPTIONS:
+                if (id != null && !id.isEmpty()) {
+                    playTrack(id);
+                }
+                return 2;
+            case "com.pulse.player.TOGGLE":
+                if (isPlaying()) {
+                    pauseTrack();
+                } else {
+                    resumeTrack();
+                }
+                return 2;
+            case "com.pulse.player.PAUSE":
+                pauseTrack();
+                return 2;
+            case "com.pulse.player.RESUME":
+                resumeTrack();
+                return 2;
+            case "com.pulse.player.NEXT":
+                skip(1, false);
+                return 2;
+            case "com.pulse.player.PREVIOUS":
+                skip(-1, false);
+                return 2;
+            case "com.pulse.player.SEEK":
+                seek(intent.getIntExtra("position", 0));
+                return 2;
+            case "com.pulse.player.OPTIONS":
                 readOptions();
                 applySpeed();
                 refresh();
-                break;
-            case ACT_STOP:
+                return 2;
+            case "com.pulse.player.STOP":
                 stopSelf();
-                break;
+                return 2;
+            default:
+                return 2;
         }
-        return START_NOT_STICKY;
     }
 
     private List<Track> allAudio() {
         List<Track> items = new ArrayList<>();
         try {
-            JSONArray json = new JSONArray(prefs.getString("library", "[]"));
+            JSONArray json = new JSONArray(this.prefs.getString("library", "[]"));
             for (int i = 0; i < json.length(); i++) {
                 JSONObject row = json.optJSONObject(i);
-                if (row == null || !"audio".equals(row.optString("type"))) continue;
-                String id = row.optString("id");
-                if (!id.isEmpty()) items.add(new Track(id, row.optString("name", "이름 없는 음악"),
-                        row.optString("artist", "내 음악")));
+                if (row != null && "audio".equals(row.optString("type"))) {
+                    String id = row.optString("id");
+                    if (id.isEmpty()) {
+                        continue;
+                    } else {
+                        items.add(new Track(id, row.optString("name", "이름 없는 음악"), row.optString("artist", "내 음악")));
+                    }
+                }
             }
-        } catch (Exception ignored) { }
+        } catch (Exception e) {
+        }
         return items;
     }
 
     private List<Track> queue() {
+        JSONArray lists;
         List<Track> library = allAudio();
         try {
-            JSONObject data = new JSONObject(prefs.getString("collections", "{}"));
+            JSONObject data = new JSONObject(this.prefs.getString("collections", "{}"));
             String selectedId = data.optString("queueId");
-            if (selectedId.isEmpty()) return library;
-            JSONArray lists = data.optJSONArray("lists");
-            if (lists == null) return library;
+            if (selectedId.isEmpty() || (lists = data.optJSONArray("lists")) == null) {
+                return library;
+            }
             for (int i = 0; i < lists.length(); i++) {
                 JSONObject list = lists.optJSONObject(i);
-                if (list == null || !selectedId.equals(list.optString("id"))) continue;
-                JSONArray ids = list.optJSONArray("tracks");
-                List<Track> ordered = new ArrayList<>();
-                if (ids != null) for (int j = 0; j < ids.length(); j++) {
-                    String id = ids.optString(j);
-                    for (Track item : library) {
-                        if (item.id.equals(id) && !ordered.contains(item)) {
-                            ordered.add(item);
-                            break;
+                if (list != null && selectedId.equals(list.optString("id"))) {
+                    JSONArray ids = list.optJSONArray("tracks");
+                    List<Track> ordered = new ArrayList<>();
+                    if (ids != null) {
+                        for (int j = 0; j < ids.length(); j++) {
+                            String id = ids.optString(j);
+                            for (Track item : library) {
+                                if (item.id.equals(id) && !ordered.contains(item)) {
+                                    ordered.add(item);
+                                    break;
+                                }
+                            }
                         }
                     }
+                    return ordered;
                 }
-                return ordered;
             }
-        } catch (Exception ignored) { }
+        } catch (Exception e) {
+        }
         return library;
     }
 
     private Track findTrack(String id) {
-        for (Track item : allAudio()) if (item.id.equals(id)) return item;
+        for (Track item : allAudio()) {
+            if (item.id.equals(id)) {
+                return item;
+            }
+        }
         return null;
     }
 
     private void ensureForeground() {
-        if (!foreground) {
+        if (!this.foreground) {
             startForeground(NOTIFICATION_ID, notification());
-            foreground = true;
+            this.foreground = true;
         }
     }
 
     private void playTrack(String id) {
         Track track = findTrack(id);
-        if (track == null) return;
-        if (id.equals(currentId) && (prepared || preparing)) { resumeTrack(); return; }
-        releasePlayer();
-        if (focusRequest != null) {
-            audioManager.abandonAudioFocusRequest(focusRequest);
-            focusRequest = null;
+        if (track == null) {
+            return;
         }
-        currentId = id;
-        currentTitle = track.title;
-        currentArtist = track.artist;
-        prefs.edit().putString("lastId", id).apply();
-        playbackError = "";
-        preparing = true;
-        playWhenPrepared = true;
-        // Foreground service promotion precedes async media initialization.
+        if (id.equals(this.currentId) && (this.prepared || this.preparing)) {
+            resumeTrack();
+            return;
+        }
+        releasePlayer();
+        if (this.focusRequest != null) {
+            this.audioManager.abandonAudioFocusRequest(this.focusRequest);
+            this.focusRequest = null;
+        }
+        this.currentId = id;
+        this.currentTitle = track.title;
+        this.currentArtist = track.artist;
+        this.prefs.edit().putString("lastId", id).apply();
+        this.playbackError = "";
+        this.preparing = true;
+        this.playWhenPrepared = true;
         ensureForeground();
         try {
-            AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build();
-            focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(audioAttributes)
-                    .setOnAudioFocusChangeListener(this).build();
-            audioManager.requestAudioFocus(focusRequest);
-            player = new MediaPlayer();
-            player.setAudioAttributes(audioAttributes);
-            player.setDataSource(this, Uri.parse(id));
-            player.setOnPreparedListener(mp -> {
-                preparing = false;
-                prepared = true;
-                if (playWhenPrepared) {
-                    mp.start();
-                    applySpeed();
+            AudioAttributes audioAttributes = new AudioAttributes.Builder().setUsage(1).setContentType(2).build();
+            this.focusRequest = new AudioFocusRequest.Builder(1).setAudioAttributes(audioAttributes).setOnAudioFocusChangeListener(this).build();
+            this.audioManager.requestAudioFocus(this.focusRequest);
+            this.player = new MediaPlayer();
+            this.player.setAudioAttributes(audioAttributes);
+            this.player.setDataSource(this, Uri.parse(id));
+            this.player.setOnPreparedListener(new MediaPlayer.OnPreparedListener() { // from class: com.pulse.player.AudioPlaybackService$$ExternalSyntheticLambda0
+                @Override // android.media.MediaPlayer.OnPreparedListener
+                public final void onPrepared(MediaPlayer mediaPlayer) {
+                    this.f$0.lambda$playTrack$0(mediaPlayer);
                 }
-                refresh();
             });
-            player.setOnCompletionListener(mp -> {
-                if (repeat == 2) {
-                    mp.seekTo(0);
-                    mp.start();
-                } else {
-                    skip(1, true);
+            this.player.setOnCompletionListener(new MediaPlayer.OnCompletionListener() { // from class: com.pulse.player.AudioPlaybackService$$ExternalSyntheticLambda1
+                @Override // android.media.MediaPlayer.OnCompletionListener
+                public final void onCompletion(MediaPlayer mediaPlayer) {
+                    this.f$0.lambda$playTrack$1(mediaPlayer);
                 }
-                refresh();
             });
-            player.setOnErrorListener((mp, what, extra) -> {
-                playbackError = "이 파일을 재생할 수 없습니다.";
-                releasePlayer();
-                refresh();
-                return true;
+            this.player.setOnErrorListener(new MediaPlayer.OnErrorListener() { // from class: com.pulse.player.AudioPlaybackService$$ExternalSyntheticLambda2
+                @Override // android.media.MediaPlayer.OnErrorListener
+                public final boolean onError(MediaPlayer mediaPlayer, int i, int i2) {
+                    return this.f$0.lambda$playTrack$2(mediaPlayer, i, i2);
+                }
             });
-            player.prepareAsync();
+            this.player.prepareAsync();
             refresh();
         } catch (Exception e) {
-            playbackError = "재생 실패: 파일 형식 또는 파일 접근 권한을 확인하세요.";
+            this.playbackError = "재생 실패: 파일 형식 또는 파일 접근 권한을 확인하세요.";
             releasePlayer();
             refresh();
         }
     }
 
-    private void releasePlayer() {
-        prepared = false;
-        preparing = false;
-        if (player != null) {
-            try { player.reset(); } catch (Exception ignored) { }
-            try { player.release(); } catch (Exception ignored) { }
-            player = null;
-        }
-    }
-
-    public boolean isPlaying() {
-        if (!prepared || player == null) return false;
-        try { return player.isPlaying(); } catch (IllegalStateException e) { return false; }
-    }
-
-    private void pauseTrack() {
-        playWhenPrepared = false;
-        if (isPlaying()) player.pause();
-        refresh();
-    }
-
-    private void resumeTrack() {
-        if (preparing) { playWhenPrepared = true; return; }
-        if (prepared && player != null && !isPlaying()) {
-            player.start();
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ void lambda$playTrack$0(MediaPlayer mp) {
+        this.preparing = false;
+        this.prepared = true;
+        if (this.playWhenPrepared) {
+            mp.start();
             applySpeed();
         }
         refresh();
     }
 
-    private void seek(int pos) {
-        if (prepared && player != null) {
-            try { player.seekTo(Math.max(0, Math.min(pos, player.getDuration()))); }
-            catch (Exception ignored) { }
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ void lambda$playTrack$1(MediaPlayer mp) {
+        if (this.repeat == 2) {
+            mp.seekTo(0);
+            mp.start();
+        } else {
+            skip(1, true);
+        }
+        refresh();
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ boolean lambda$playTrack$2(MediaPlayer mp, int what, int extra) {
+        this.playbackError = "이 파일을 재생할 수 없습니다.";
+        releasePlayer();
+        refresh();
+        return true;
+    }
+
+    private void releasePlayer() {
+        this.prepared = false;
+        this.preparing = false;
+        if (this.player != null) {
+            try {
+                this.player.reset();
+            } catch (Exception e) {
+            }
+            try {
+                this.player.release();
+            } catch (Exception e2) {
+            }
+            this.player = null;
+        }
+    }
+
+    public boolean isPlaying() {
+        if (!this.prepared || this.player == null) {
+            return false;
+        }
+        try {
+            return this.player.isPlaying();
+        } catch (IllegalStateException e) {
+            return false;
+        }
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public void pauseTrack() {
+        this.playWhenPrepared = false;
+        if (isPlaying()) {
+            this.player.pause();
+        }
+        refresh();
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public void resumeTrack() {
+        if (this.preparing) {
+            this.playWhenPrepared = true;
+            return;
+        }
+        if (this.prepared && this.player != null && !isPlaying()) {
+            this.player.start();
+            applySpeed();
+        }
+        refresh();
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public void seek(int pos) {
+        if (this.prepared && this.player != null) {
+            try {
+                this.player.seekTo(Math.max(0, Math.min(pos, this.player.getDuration())));
+            } catch (Exception e) {
+            }
         }
         refresh();
     }
 
     private void applySpeed() {
-        if (prepared && player != null && isPlaying()) {
-            try { player.setPlaybackParams(player.getPlaybackParams().setSpeed(speed)); }
-            catch (Exception ignored) { }
+        if (this.prepared && this.player != null && isPlaying()) {
+            try {
+                this.player.setPlaybackParams(this.player.getPlaybackParams().setSpeed(this.speed));
+            } catch (Exception e) {
+            }
         }
     }
 
-    /** Automatic completion respects off/all/one; manual skips always wrap. */
-    private void skip(int direction, boolean automatic) {
-        List<Track> list = queue();
-        if (list.isEmpty()) { stopSelf(); return; }
-        int current = -1;
-        for (int i = 0; i < list.size(); i++) if (list.get(i).id.equals(currentId)) { current = i; break; }
+    /* JADX INFO: Access modifiers changed from: private */
+    public void skip(int direction, boolean automatic) {
         int next;
-        if (shuffle && list.size() > 1) {
-            next = random.nextInt(list.size() - 1);
-            if (current >= 0 && next >= current) next++;
+        List<Track> list = queue();
+        if (list.isEmpty()) {
+            stopSelf();
+            return;
+        }
+        int current = -1;
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i).id.equals(this.currentId)) {
+                current = i;
+                break;
+            }
+        }
+        if (this.shuffle && list.size() > 1) {
+            next = this.random.nextInt(list.size() - 1);
+            if (current >= 0 && next >= current) {
+                next++;
+            }
         } else if (current == -1) {
             next = 0;
         } else {
             next = current + direction;
             if (next >= list.size()) {
-                if (automatic && repeat != 1) { stopSelf(); return; }
+                if (automatic && this.repeat != 1) {
+                    stopSelf();
+                    return;
+                }
                 next = 0;
             } else if (next < 0) {
                 next = list.size() - 1;
@@ -321,114 +434,120 @@ public final class AudioPlaybackService extends Service implements AudioManager.
     }
 
     private PendingIntent actionIntent(String action, int requestCode) {
-        Intent intent = new Intent(this, AudioPlaybackService.class).setAction(action);
-        return PendingIntent.getService(this, requestCode, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Intent intent = new Intent(this, (Class<?>) AudioPlaybackService.class).setAction(action);
+        return PendingIntent.getService(this, requestCode, intent, 201326592);
     }
 
     private Notification notification() {
-        Intent launch = new Intent(this, MainActivity.class)
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        PendingIntent openApp = PendingIntent.getActivity(this, 0, launch,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        boolean playing = isPlaying() || (preparing && playWhenPrepared);
+        Intent launch = new Intent(this, (Class<?>) MainActivity.class).addFlags(603979776);
+        PendingIntent openApp = PendingIntent.getActivity(this, 0, launch, 201326592);
+        boolean playing = isPlaying() || (this.preparing && this.playWhenPrepared);
         int toggleIcon = playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play;
         String toggleText = playing ? "일시정지" : "재생";
-        Notification.Builder builder = new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(currentTitle)
-                .setContentText(currentArtist + " · Pulse Player")
-                .setContentIntent(openApp)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .setOnlyAlertOnce(true)
-                .setOngoing(playing)
-                .setShowWhen(false)
-                .addAction(android.R.drawable.ic_media_previous, "이전", actionIntent(ACT_PREVIOUS, 1))
-                .addAction(toggleIcon, toggleText, actionIntent(ACT_TOGGLE, 2))
-                .addAction(android.R.drawable.ic_media_next, "다음", actionIntent(ACT_NEXT, 3));
-        if (mediaSession != null) {
-            builder.setStyle(new Notification.MediaStyle()
-                    .setMediaSession(mediaSession.getSessionToken())
-                    .setShowActionsInCompactView(0, 1, 2));
+        Notification.Builder builder = new Notification.Builder(this, CHANNEL_ID).setSmallIcon(R.drawable.ic_notification).setContentTitle(this.currentTitle).setContentText(this.currentArtist + " · Pulse Player").setContentIntent(openApp).setVisibility(1).setOnlyAlertOnce(true).setOngoing(playing).setShowWhen(false).addAction(android.R.drawable.ic_media_previous, "이전", actionIntent(ACT_PREVIOUS, 1)).addAction(toggleIcon, toggleText, actionIntent(ACT_TOGGLE, 2)).addAction(android.R.drawable.ic_media_next, "다음", actionIntent(ACT_NEXT, 3));
+        if (this.mediaSession != null) {
+            builder.setStyle(new Notification.MediaStyle().setMediaSession(this.mediaSession.getSessionToken()).setShowActionsInCompactView(0, 1, 2));
         }
         return builder.build();
     }
 
     private void syncMediaSession() {
-        if (mediaSession == null) return;
-        int state = preparing ? PlaybackState.STATE_BUFFERING
-                : isPlaying() ? PlaybackState.STATE_PLAYING
-                : PlaybackState.STATE_PAUSED;
-        long position = 0;
-        long duration = 0;
-        if (prepared && player != null) {
-            try { position = player.getCurrentPosition(); duration = player.getDuration(); }
-            catch (Exception ignored) { }
+        int state;
+        long position;
+        long duration;
+        if (this.mediaSession == null) {
+            return;
         }
-        PlaybackState playbackState = new PlaybackState.Builder()
-                .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
-                        | PlaybackState.ACTION_PLAY_PAUSE | PlaybackState.ACTION_SKIP_TO_NEXT
-                        | PlaybackState.ACTION_SKIP_TO_PREVIOUS | PlaybackState.ACTION_SEEK_TO
-                        | PlaybackState.ACTION_STOP)
-                .setState(state, position, isPlaying() ? speed : 0f,
-                        SystemClock.elapsedRealtime()).build();
-        mediaSession.setPlaybackState(playbackState);
-        mediaSession.setMetadata(new MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, currentTitle)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, currentArtist)
-                .putLong(MediaMetadata.METADATA_KEY_DURATION, duration)
-                .build());
+        if (this.preparing) {
+            state = 6;
+        } else {
+            state = isPlaying() ? 3 : 2;
+        }
+        long position2 = 0;
+        long duration2 = 0;
+        if (this.prepared && this.player != null) {
+            try {
+                position2 = this.player.getCurrentPosition();
+                duration2 = this.player.getDuration();
+            } catch (Exception e) {
+            }
+            position = position2;
+            duration = duration2;
+        } else {
+            position = 0;
+            duration = 0;
+        }
+        PlaybackState playbackState = new PlaybackState.Builder().setActions(823L).setState(state, position, isPlaying() ? this.speed : 0.0f, SystemClock.elapsedRealtime()).build();
+        this.mediaSession.setPlaybackState(playbackState);
+        this.mediaSession.setMetadata(new MediaMetadata.Builder().putString("android.media.metadata.TITLE", this.currentTitle).putString("android.media.metadata.ARTIST", this.currentArtist).putLong("android.media.metadata.DURATION", duration).build());
     }
 
     private void refresh() {
         syncMediaSession();
-        if (foreground) {
-            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
-                    .notify(NOTIFICATION_ID, notification());
+        if (this.foreground) {
+            ((NotificationManager) getSystemService("notification")).notify(NOTIFICATION_ID, notification());
         }
     }
 
-    /** Called on the Activity UI thread only. */
     public JSONObject snapshot() {
         JSONObject out = new JSONObject();
+        int position = 0;
+        int duration = 0;
         try {
-            int position = 0, duration = 0;
-            if (prepared && player != null) {
-                try { position = player.getCurrentPosition(); duration = player.getDuration(); }
-                catch (Exception ignored) { }
+            if (this.prepared && this.player != null) {
+                try {
+                    position = this.player.getCurrentPosition();
+                    duration = this.player.getDuration();
+                } catch (Exception e) {
+                }
             }
-            out.put("id", currentId);
+            out.put("id", this.currentId);
             out.put("playing", isPlaying());
-            out.put("preparing", preparing);
+            out.put("preparing", this.preparing);
             out.put("position", position);
             out.put("duration", duration);
-            out.put("error", playbackError);
-            out.put("shuffle", shuffle);
-            out.put("repeat", repeat);
-            out.put("speed", speed);
+            out.put("error", this.playbackError);
+            out.put("shuffle", this.shuffle);
+            out.put("repeat", this.repeat);
+            out.put("speed", this.speed);
             out.put("video", false);
-        } catch (Exception ignored) { }
+        } catch (Exception e2) {
+        }
         return out;
     }
 
-    @Override public void onAudioFocusChange(int focus) {
-        if (focus == AudioManager.AUDIOFOCUS_LOSS || focus == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+    @Override // android.media.AudioManager.OnAudioFocusChangeListener
+    public void onAudioFocusChange(int focus) {
+        if (focus == -1 || focus == -2) {
             pauseTrack();
-        } else if (focus == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-            if (player != null) player.setVolume(.25f, .25f);
-        } else if (focus == AudioManager.AUDIOFOCUS_GAIN && player != null) {
-            player.setVolume(1f, 1f);
+            return;
+        }
+        if (focus == -3) {
+            if (this.player != null) {
+                this.player.setVolume(0.25f, 0.25f);
+            }
+        } else if (focus == 1 && this.player != null) {
+            this.player.setVolume(1.0f, 1.0f);
         }
     }
 
-    @Override public void onDestroy() {
-        foreground = false;
+    @Override // android.app.Service
+    public void onDestroy() {
+        this.foreground = false;
         releasePlayer();
-        if (audioManager != null && focusRequest != null) audioManager.abandonAudioFocusRequest(focusRequest);
-        if (mediaSession != null) { mediaSession.setActive(false); mediaSession.release(); }
+        if (this.audioManager != null && this.focusRequest != null) {
+            this.audioManager.abandonAudioFocusRequest(this.focusRequest);
+        }
+        if (this.mediaSession != null) {
+            this.mediaSession.setActive(false);
+            this.mediaSession.release();
+        }
         instance = null;
         super.onDestroy();
     }
 
-    @Override public IBinder onBind(Intent intent) { return null; }
+    @Override // android.app.Service
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
 }
