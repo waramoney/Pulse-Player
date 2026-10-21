@@ -200,15 +200,6 @@ body.modal-open{overflow:hidden}
 .yt-mini .ico{width:16px;height:16px}
 .yt-mini.saved{color:#9ce1dc;border-color:#2f5551;background:#16282a}
 /* YouTube dock (official IFrame player) */
-.yt-dock{position:absolute;z-index:30;background:#000;border-radius:17px;overflow:hidden}
-.yt-dock .yt-frame-wrap{position:absolute;inset:0}
-.yt-dock iframe,.yt-dock #ytFrame{width:100%;height:100%;border:0;display:block}
-.yt-dock-bar{display:none}
-.yt-dock.floating{position:fixed;right:14px;bottom:24px;width:200px;height:142px;border-radius:14px;border:1px solid #876bab;box-shadow:0 12px 34px #000c;z-index:61}
-.yt-dock.floating .yt-dock-bar{display:flex;justify-content:flex-end;gap:2px;height:30px;padding:2px 4px;background:#1d1528}
-.yt-dock.floating .yt-frame-wrap{top:30px}
-.yt-dock-bar button{width:30px;height:26px;border:0;background:transparent;color:#ead6ff;display:flex;align-items:center;justify-content:center}
-.yt-dock-bar .ico{width:15px;height:15px}
 /* dialog extras */
 .dialog-tools{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
 .dialog-tools .tool{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 10px;border-radius:10px;border:1px solid #4d3e5c;background:#272033;color:#eadcf7;font-size:11px;font-weight:800}
@@ -274,9 +265,6 @@ body.modal-open{overflow:hidden}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
 @media(max-width:760px){
- body[data-view="library"] .yt-dock.floating,body[data-view="playlists"] .yt-dock.floating{bottom:calc(150px + env(safe-area-inset-bottom))}
- body[data-view="player"] .yt-dock.floating{bottom:calc(92px + env(safe-area-inset-bottom))}
- .yt-dock.floating{width:176px;height:129px}
  .nav-tab{min-width:0;flex:1;padding:7px 4px;font-size:10.5px}
  .mobile-nav{gap:4px;padding-left:8px;padding-right:8px}
  .library-top{align-items:center}

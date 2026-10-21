@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.res.AssetFileDescriptor;
 import android.content.SharedPreferences;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
@@ -15,6 +16,8 @@ import android.media.MediaPlayer;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.net.Uri;
+import android.os.Build;
+import java.io.IOException;
 import android.os.IBinder;
 import android.os.SystemClock;
 import java.util.ArrayList;
@@ -244,6 +247,11 @@ public final class AudioPlaybackService extends Service implements AudioManager.
     private void playTrack(String id) {
         Track track = findTrack(id);
         if (track == null) {
+            this.currentId = id;
+            this.playbackError = "곡 정보를 찾을 수 없습니다. 라이브러리를 새로고침하거나 파일을 다시 추가하세요.";
+            this.preparing = false;
+            this.prepared = false;
+            refresh();
             return;
         }
         if (id.equals(this.currentId) && (this.prepared || this.preparing)) {
@@ -269,7 +277,9 @@ public final class AudioPlaybackService extends Service implements AudioManager.
             this.audioManager.requestAudioFocus(this.focusRequest);
             this.player = new MediaPlayer();
             this.player.setAudioAttributes(audioAttributes);
-            this.player.setDataSource(this, Uri.parse(id));
+            // Prefer a read-only descriptor for persisted picker and MediaStore
+            // content URIs. This avoids provider-specific content URI failures.
+            setTrackDataSource(this.player, Uri.parse(id));
             this.player.setOnPreparedListener(new MediaPlayer.OnPreparedListener() { // from class: com.pulse.player.AudioPlaybackService$$ExternalSyntheticLambda0
                 @Override // android.media.MediaPlayer.OnPreparedListener
                 public final void onPrepared(MediaPlayer mediaPlayer) {
@@ -290,10 +300,32 @@ public final class AudioPlaybackService extends Service implements AudioManager.
             });
             this.player.prepareAsync();
             refresh();
-        } catch (Exception e) {
-            this.playbackError = "재생 실패: 파일 형식 또는 파일 접근 권한을 확인하세요.";
+        } catch (SecurityException e) {
+            this.playbackError = "음악 파일 접근이 차단되었습니다. 설정에서 음악 권한을 허용하거나 파일을 다시 추가하세요.";
             releasePlayer();
             refresh();
+        } catch (Exception e) {
+            this.playbackError = "파일 재생 실패 (" + e.getClass().getSimpleName() + "). 파일이 저장돼 있는지 또는 코덱을 확인하세요.";
+            releasePlayer();
+            refresh();
+        }
+    }
+
+    private void setTrackDataSource(MediaPlayer mediaPlayer, Uri uri) throws IOException {
+        if ("content".equalsIgnoreCase(uri.getScheme())) {
+            // MediaPlayer.setDataSource(Context, Uri) does not work uniformly on
+            // all Android content providers; a granted file descriptor is safer.
+            try (AssetFileDescriptor descriptor = getContentResolver().openAssetFileDescriptor(uri, "r")) {
+                if (descriptor == null) throw new IOException("Media content not found");
+                long length = descriptor.getLength();
+                if (length >= 0) {
+                    mediaPlayer.setDataSource(descriptor.getFileDescriptor(), descriptor.getStartOffset(), length);
+                } else {
+                    mediaPlayer.setDataSource(descriptor.getFileDescriptor());
+                }
+            }
+        } else {
+            mediaPlayer.setDataSource(this, uri);
         }
     }
 
@@ -302,8 +334,13 @@ public final class AudioPlaybackService extends Service implements AudioManager.
         this.preparing = false;
         this.prepared = true;
         if (this.playWhenPrepared) {
-            mp.start();
-            applySpeed();
+            try {
+                mp.start();
+                applySpeed();
+            } catch (Exception e) {
+                this.playbackError = "음악을 시작하지 못했습니다 (" + e.getClass().getSimpleName() + ").";
+                releasePlayer();
+            }
         }
         refresh();
     }
@@ -321,7 +358,7 @@ public final class AudioPlaybackService extends Service implements AudioManager.
 
     /* JADX INFO: Access modifiers changed from: private */
     public /* synthetic */ boolean lambda$playTrack$2(MediaPlayer mp, int what, int extra) {
-        this.playbackError = "이 파일을 재생할 수 없습니다.";
+        this.playbackError = "이 파일을 재생할 수 없습니다. 오류 코드: " + what + "/" + extra + ". 파일 권한·코덱을 확인하세요.";
         releasePlayer();
         refresh();
         return true;

@@ -1,0 +1,30 @@
+const fs = require('fs');
+const assert = require('assert/strict');
+const path = require('path');
+const root = path.join(__dirname, '..');
+const source = p => fs.readFileSync(path.join(root,p), 'utf8');
+const js = source('app/src/main/assets/app.js');
+const html = source('app/src/main/assets/index.html');
+const activity = source('app/src/main/java/com/pulse/player/MainActivity.java');
+const audio = source('app/src/main/java/com/pulse/player/AudioPlaybackService.java');
+const manifest = source('app/src/main/AndroidManifest.xml');
+const build = source('app/build.gradle');
+assert.match(js, /function openChromeYouTube\(url\)/);
+assert.match(js, /window\.Android\.openChrome\(url\)/);
+assert.match(js, /openChromeYouTube\(`https:\/\/www\.youtube\.com\/results\?search_query=/);
+assert.match(js, /mini\.hidden = !item \|\| yt/);
+assert.match(js, /function directMediaDownloadDialog\(/);
+assert.match(js, /function renderYtAccount\(/);
+assert.doesNotMatch(js + html, /YT\.Player|iframe_api|ytDock|ytClientDialog|ytKeyDialog|dialogSecret|OAuth 클라이언트 ID/);
+assert.doesNotMatch(activity, /ServerSocket|YT_SCOPE|ytApiCall|startChromeSignIn|YouTubePlaybackService|oauth2\.googleapis\.com/);
+assert.match(activity, /openInChrome\(String address\)/);
+assert.match(activity, /private boolean hasAudioPermission\(\)/);
+assert.match(audio, /openAssetFileDescriptor\(uri, "r"\)/);
+assert.match(audio, /setTrackDataSource\(this\.player, Uri\.parse\(id\)\)/);
+assert.doesNotMatch(manifest, /YouTubePlaybackService|pulseplayer" android:host="auth/);
+assert.match(build,/versionCode 134/);
+const ids = new Set([...html.matchAll(/\bid="([A-Za-z][\w-]+)"/g)].map(x=>x[1]));
+for (const match of js.matchAll(/\bel\(['"]([\w-]+)['"]\)/g)) {
+ assert.ok(ids.has(match[1]), 'Missing HTML id: ' + match[1]);
+}
+console.log('UI and native contract tests PASS');

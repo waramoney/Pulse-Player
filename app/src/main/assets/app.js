@@ -37,8 +37,7 @@
   let permissionGranted = false;
   let lastScanAt = 0;
   let hiddenCount = 0;
-  let appVersion = '1.3.3';
-  let bgPlay = true;
+  let appVersion = '1.3.4';
 
   const storage = {
     get(key) { try { return localStorage.getItem(key); } catch (_) { return null; } },
@@ -213,7 +212,6 @@
     renderPlaylists();
     renderNow();
     if (scrollTop) window.scrollTo({top: 0, behavior: 'instant'});
-    placeYtDock();
   }
 
   function renderNav() {
@@ -237,6 +235,7 @@
     });
     renderNav();
     renderLibrary();
+    renderNow();
   }
 
   function renderCounts() {
@@ -333,7 +332,7 @@
     document.body.classList.add('modal-open');
     el('dialogTitle').textContent = title;
     el('dialogHint').textContent = hint || '';
-    for (const id of ['dialogName', 'dialogSecret', 'dialogLyrics', 'dialogSearch', 'dialogChoices', 'dialogTools', 'dialogFilters']) el(id).hidden = true;
+    for (const id of ['dialogName', 'dialogLyrics', 'dialogSearch', 'dialogChoices', 'dialogTools', 'dialogFilters']) el(id).hidden = true;
     el('dialogHint').classList.remove('pre');
     el('dialogSearch').after(el('dialogFilters'));
     el('dialogFilters').classList.remove('type-pick');
@@ -353,7 +352,6 @@
   }
 
   function closeModal() {
-    if (el('dialogBackdrop').dataset.kind === 'auth' && has('ytCancelSignIn')) window.Android.ytCancelSignIn();
     el('dialogBackdrop').hidden = true;
     document.body.classList.remove('modal-open');
     el('dialogConfirm').onclick = null;
@@ -1079,7 +1077,7 @@
     const yt = isYT(item);
     el('currentTitle').textContent = item ? item.name : '음악을 추가해 보세요';
     el('currentArtist').textContent = item ? item.artist || '내 기기 · 오프라인' : '라이브러리에서 곡을 선택하세요';
-    el('trackEyebrow').textContent = item ? (yt ? 'NOW PLAYING · YOUTUBE' : item.type === 'video' ? 'NOW WATCHING · VIDEO' : 'NOW PLAYING · AUDIO') : 'READY TO PLAY';
+    el('trackEyebrow').textContent = item ? (yt ? 'OPEN IN CHROME · YOUTUBE' : item.type === 'video' ? 'NOW WATCHING · VIDEO' : 'NOW PLAYING · AUDIO') : 'READY TO PLAY';
     el('sourceLabel').textContent = yt ? '● YOUTUBE · ONLINE' : '● 100% OFFLINE';
     el('sourceLabel').classList.toggle('online', yt);
     const fav = el('favoriteCurrent');
@@ -1091,7 +1089,7 @@
     document.querySelector('.vinyl-sticker use').setAttribute('href', yt ? '#i-youtube' : item?.type === 'video' ? '#i-video' : '#i-music');
     el('artworkTabLabel').textContent = yt ? '영상' : item?.type === 'video' ? '영상' : '음악';
     el('visualCaption').textContent = yt ? 'YOUTUBE' : item?.type === 'video' ? 'VIDEO COLLECTION' : 'YOUR MUSIC, YOUR MOMENT';
-    el('footerHint').textContent = yt ? (bgPlay && native ? 'YouTube · 화면을 꺼도 계속 재생' : 'YouTube · 앱 화면에서 재생')
+    el('footerHint').textContent = yt ? 'YouTube · Chrome에서 재생 · 앱 내 플레이어는 사용하지 않음'
       : item?.type === 'video' ? (native ? '전체 화면으로 영상 재생' : '화면에서 영상 재생')
       : (collections.queueId && queueList() ? `${queueList().name} · 화면 꺼짐 재생` : native ? '화면을 꺼도 음악은 계속' : '내 기기에서 직접 재생');
     el('togglePlayback').setAttribute('aria-label', playing ? '일시정지' : '재생');
@@ -1105,7 +1103,7 @@
     el('artworkTab').setAttribute('aria-selected', String(!lyricsOpen));
     el('lyricsTab').setAttribute('aria-selected', String(lyricsOpen));
     el('editLyrics').disabled = !item;
-    el('vinylWrap').hidden = lyricsOpen || (yt && ytState.active);
+    el('vinylWrap').hidden = lyricsOpen;
     el('lyricsPanel').hidden = !lyricsOpen;
     el('visual').classList.toggle('lyrics-open', lyricsOpen);
     el('visual').classList.toggle('youtube', yt && !lyricsOpen);
@@ -1113,7 +1111,7 @@
     browserVideo.hidden = !!(native || item?.type !== 'video' || lyricsOpen);
     if (lyricsOpen) { renderLyrics(); updateLyricHighlight(); }
     const mini = el('miniPlayer');
-    mini.hidden = !item;
+    mini.hidden = !item || yt || (view === 'library' && activeFilter === 'youtube');
     if (item) {
       el('miniTitle').textContent = item.name;
       el('miniArtist').textContent = item.artist || '내 파일';
@@ -1125,7 +1123,6 @@
       else art.appendChild(icon(item.type === 'video' ? 'video' : 'music'));
     }
     renderProgress();
-    placeYtDock();
   }
 
   function renderProgress() {
@@ -1147,7 +1144,6 @@
     if (native) window.Android.setOptions(shuffle, repeat, speed);
     else storage.set('pulse-options', JSON.stringify({shuffle, repeat, speed}));
     if (browserElement) browserElement.playbackRate = speed;
-    if (ytState.ready && ytState.player?.setPlaybackRate) { try { ytState.player.setPlaybackRate(speed); } catch (_) { /* ignore */ } }
     renderNow();
   }
 
@@ -1159,230 +1155,58 @@
     browserElement = null;
   }
 
-  // ---------------------------------------------------------------- YouTube player
-  const ytState = {apiLoading: false, apiReady: false, waiters: [], player: null, ready: false, videoId: '', state: -1, active: false, metaSent: '', poll: 0};
-
-  let lastReport = '';
-  function reportYt(force = false) {
-    if (!has('ytState')) return;
-    const item = current();
-    const active = isYT(item) && ytState.active;
-    const key = active ? `${item.id}|${playing}|${item.name}|${item.artist}|${Math.round(duration / 1000)}` : 'off';
-    if (!force && key === lastReport) return;
-    lastReport = key;
-    window.Android.ytState(active, active && playing, active ? item.name || 'YouTube' : '', active ? item.artist || '' : '',
-      active ? item.thumb || `https://i.ytimg.com/vi/${item.videoId || item.id.slice(3)}/mqdefault.jpg` : '', position || 0, duration || 0);
+  // ---------------------------------------------------------------- YouTube: external Chrome playback only
+  // The browser owns account cookies and video playback. Pulse Player neither
+  // signs into Google directly nor proxies, extracts or embeds video streams.
+  function ytStop() {
+    playing = false;
+    preparing = false;
   }
 
-  window.onYtCommand = cmd => {
-    const item = current();
-    if (cmd === 'close') { if (isYT(item)) { ytStop(true); playing = false; renderAll(); } return; }
-    if (!isYT(item) || !ytState.ready) return;
-    try {
-      if (cmd === 'play') ytState.player.playVideo();
-      else if (cmd === 'pause') ytState.player.pauseVideo();
-      else if (cmd === 'toggle') togglePlayback();
-      else if (cmd === 'next') nextPrevious(1);
-      else if (cmd === 'prev') nextPrevious(-1);
-      else if (cmd.startsWith('seek:')) { seekTo(Number(cmd.slice(5)) || 0); reportYt(true); }
-    } catch (_) { /* ignore */ }
-  };
-
-  function loadYouTubeApi(cb) {
-    if (ytState.apiReady && window.YT?.Player) { cb(); return; }
-    ytState.waiters.push(cb);
-    if (ytState.apiLoading) return;
-    ytState.apiLoading = true;
-    window.onYouTubeIframeAPIReady = () => {
-      ytState.apiReady = true;
-      const list = ytState.waiters.splice(0);
-      list.forEach(fn => { try { fn(); } catch (_) { /* ignore */ } });
-    };
-    const s = document.createElement('script');
-    s.src = 'https://www.youtube.com/iframe_api';
-    s.async = true;
-    let timer = null;
-    const failed = () => {
-      if (ytState.apiReady || !ytState.apiLoading) return;
-      ytState.apiLoading = false;
-      ytState.waiters.length = 0;
-      preparing = false;
-      renderNow();
-      if (ytState.videoId) showYtPlaybackHelp(ytState.videoId, 'YouTube 플레이어에 연결하지 못했습니다. 인터넷을 확인하거나 공식 YouTube에서 재생해 주세요.');
-    };
-    timer = setTimeout(failed, 15000);
-    s.onerror = () => { clearTimeout(timer); failed(); };
-    document.head.appendChild(s);
+  function openChromeYouTube(url) {
+    // Close the embedded audio state before delegating playback to Chrome.
+    if (native && has('pauseAll')) window.Android.pauseAll();
+    else stopBrowser();
+    playing = false;
+    preparing = false;
+    const mini = el('miniPlayer');
+    if (mini) mini.hidden = true;
+    if (native && has('openChrome')) window.Android.openChrome(url);
+    else if (has('openExternal')) window.Android.openExternal(url);
+    else window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   function ytPlay(item) {
-    const vid = item.videoId || item.id.replace(/^yt:/, '');
     if (native && has('pauseAll')) window.Android.pauseAll();
     stopBrowser();
-    ytState.active = true;
-    ytState.videoId = vid;
-    ytState.metaSent = '';
-    playing = false; preparing = true; position = 0;
+    ytStop();
+    position = 0;
     duration = item.duration || 0;
-    renderAll();
-    loadYouTubeApi(() => {
-      if (!ytState.player) {
-        ytState.player = new YT.Player('ytFrame', {
-          videoId: vid,
-          width: '100%', height: '100%',
-          playerVars: {playsinline: 1, rel: 0, autoplay: 1, origin: location.origin, widget_referrer: location.origin, hl: 'ko'},
-          events: {
-            onReady: e => {
-              ytState.ready = true;
-              try { e.target.setPlaybackRate(speed); } catch (_) { /* ignore */ }
-              if (ytState.active) e.target.playVideo();
-            },
-            onStateChange: e => onYtState(e.data),
-            onError: e => onYtError(e.data),
-            onAutoplayBlocked: () => {
-              preparing = false;
-              playing = false;
-              renderNow();
-              toast('자동 재생이 차단됐어요. 재생 ▶ 버튼을 눌러 주세요.');
-            }
-          }
-        });
-      } else if (ytState.ready) {
-        ytState.player.loadVideoById(vid);
-      } else {
-        // player is still initialising; it will start with the latest id once ready
-        setTimeout(() => ytState.ready && ytState.videoId === vid && ytState.player.loadVideoById(vid), 800);
-      }
-      startYtPoll();
-    });
-  }
-
-  function startYtPoll() {
-    clearInterval(ytState.poll);
-    ytState.poll = setInterval(() => {
-      const item = current();
-      if (!isYT(item) || !ytState.ready || !ytState.player?.getCurrentTime) return;
-      try {
-        position = ytState.player.getCurrentTime() * 1000;
-        const d = ytState.player.getDuration() * 1000;
-        if (d > 0) duration = d;
-        if (d > 0 && ytState.metaSent !== item.id) {
-          ytState.metaSent = item.id;
-          const data = ytState.player.getVideoData ? ytState.player.getVideoData() : {};
-          const title = data?.title || '';
-          const author = data?.author || '';
-          if (Math.abs((item.duration || 0) - d) > 1500 || (title && item.name === 'YouTube 영상')) {
-            item.duration = d;
-            if (title && item.name === 'YouTube 영상') item.name = title;
-            if (author && item.artist === 'YouTube') item.artist = author;
-            if (has('updateYouTubeMeta')) window.Android.updateYouTubeMeta(item.id, title, author, d);
-            else persistBrowserYouTube();
-          }
-        }
-        if (!dragging) renderProgress();
-        updateLyricHighlight();
-        reportYt();
-        if (el('ytDock').classList.contains('inline')) placeYtDock();
-      } catch (_) { /* ignore */ }
-    }, 800);
-  }
-
-  function onYtState(state) {
-    ytState.state = state;
-    const wasPlaying = playing;
-    playing = state === 1;
-    preparing = state === 3 || state === -1;
-    if (playing && native && has('pauseAll')) window.Android.pauseAll();
-    if (has('setKeepScreenOn')) window.Android.setKeepScreenOn(playing);
-    if (state === 0) {
-      playing = false;
-      if (repeat === 2) { ytState.player.seekTo(0, true); ytState.player.playVideo(); }
-      else nextPrevious(1, true);
-    }
-    if (wasPlaying !== playing) renderLibrary();
     renderNow();
-    reportYt(true);
-  }
-
-  function showYtPlaybackHelp(videoId, message) {
-    const link = `https://www.youtube.com/watch?v=${videoId}`;
-    modal('YouTube 재생 안내', message, 'YouTube에서 재생', () => {
-      closeModal(); ytStop(true); openExternal(link);
-    });
-    el('dialogChoices').hidden = false;
-    el('dialogChoices').appendChild(button('YouTube 공식 앱에서 보기·저장', 'dialog-option', () => {
-      closeModal(); openYouTubeOffline(videoId);
-    }, 'download'));
-    el('dialogChoices').appendChild(button('다음 영상', 'dialog-option', () => { closeModal(); nextPrevious(1, true); }, 'skip-next'));
-    el('dialogChoices').appendChild(button('영상 저장·즐겨찾기는 유지돼요', 'dialog-option', closeModal, 'heart'));
-  }
-
-  function onYtError(code) {
-    playing = false; preparing = false;
-    const item = current();
-    const vid = ytState.videoId;
-    renderNow();
-    if (item) item.ytError = code;
-    const num = Number(code);
-    if (num === 153) {
-      showYtPlaybackHelp(vid, 'YouTube가 앱의 재생 요청을 식별하지 못했습니다(153). 공식 YouTube 앱이나 Chrome에서 재생할 수 있습니다.');
-    } else if ([101, 150, 152].includes(num)) {
-      showYtPlaybackHelp(vid, '이 영상은 업로더가 외부 앱 안에서 재생되지 않도록 제한했어요. YouTube 앱·Chrome에서 재생하세요.');
-    } else {
-      showYtPlaybackHelp(vid, `영상 재생 오류(${code}). 삭제·비공개·네트워크 문제일 수 있습니다. YouTube 앱·Chrome에서 재생해 보세요.`);
-    }
-  }
-
-  function ytStop(clear = false) {
-    if (ytState.player && ytState.ready) { try { ytState.player.pauseVideo(); } catch (_) { /* ignore */ } }
-    if (clear && ytState.player && ytState.ready) { try { ytState.player.stopVideo(); } catch (_) { /* ignore */ } }
-    ytState.active = false;
-    clearInterval(ytState.poll);
-    reportYt(true);
-    if (has('setKeepScreenOn')) window.Android.setKeepScreenOn(false);
-    placeYtDock();
-  }
-
-  function placeYtDock() {
-    const dock = el('ytDock');
-    const item = current();
-    if (!isYT(item) || !ytState.active) { dock.hidden = true; return; }
-    dock.hidden = false;
-    const visual = el('visual');
-    const inline = visual.offsetParent !== null && !lyricsOpen && el('dialogBackdrop').hidden;
-    if (inline) {
-      const r = visual.getBoundingClientRect();
-      dock.className = 'yt-dock inline';
-      dock.style.top = `${Math.round(r.top + window.scrollY)}px`;
-      dock.style.left = `${Math.round(r.left + window.scrollX)}px`;
-      dock.style.width = `${Math.round(r.width)}px`;
-      dock.style.height = `${Math.round(r.height)}px`;
-    } else {
-      dock.className = 'yt-dock floating';
-      dock.style.top = dock.style.left = dock.style.width = dock.style.height = '';
-    }
+    const videoId = ytIdFrom(item.videoId || item.id.slice(3));
+    if (videoId) openChromeYouTube(`https://www.youtube.com/watch?v=${videoId}`);
+    else toast('영상 주소가 유효하지 않습니다.');
   }
 
   function openYouTubePage(videoId) {
-    const url = videoId ? `https://m.youtube.com/watch?v=${videoId}` : 'https://m.youtube.com/';
-    if (isYT(current()) && ytState.active) { ytStop(); renderNow(); }
-    if (has('openBrowser')) window.Android.openBrowser(url, 'youtube');
-    else window.open(url, '_blank', 'noopener');
+    ytStop();
+    renderNow();
+    const id = ytIdFrom(videoId);
+    openChromeYouTube(id ? `https://www.youtube.com/watch?v=${id}` : 'https://www.youtube.com/');
   }
 
   function openExternal(url) {
     if (has('openExternal')) window.Android.openExternal(url);
-    else window.open(url, '_blank', 'noopener');
+    else window.open(url, '_blank', 'noopener,noreferrer');
   }
 
-  // YouTube offline videos stay inside the official YouTube app. Pulse Player
-  // does not intercept ads or extract audiovisual streams from YouTube.
   function openYouTubeOffline(videoId = '') {
     const id = ytIdFrom(videoId);
-    if (ytState.active) { ytStop(true); playing = false; renderNow(); }
+    ytStop();
+    renderNow();
     if (id && has('openInYouTubeApp')) window.Android.openInYouTubeApp(id);
-    else openExternal(id ? `https://www.youtube.com/watch?v=${id}` : 'https://www.youtube.com/');
-    toast('YouTube 앱에서 영상 아래 다운로드를 선택하세요. Premium/영상별 제공 여부에 따라 달라집니다.');
+    else openChromeYouTube(id ? `https://www.youtube.com/watch?v=${id}` : 'https://www.youtube.com/');
+    toast('오프라인 저장은 YouTube 공식 앱에서 제공되는 경우에만 이용할 수 있습니다.');
   }
 
   const DIRECT_MEDIA_EXT = /\.(?:mp4|m4v|mov|webm|mp3|m4a|aac|wav|flac|ogg|opus)$/i;
@@ -1458,387 +1282,48 @@
   };
   window.onBrowserClosed = () => { renderNow(); };
 
-  // ---------------------------------------------------------------- YouTube account (Google) + browsing
-  let ytAccount = {configured: false, signedIn: false, name: '', thumb: '', likes: 'LL'};
+  // ---------------------------------------------------------------- YouTube without OAuth clients or paid API keys
+  // Chrome remains the only Google sign-in surface. Chrome cookies are not
+  // accessible to this app, so subscriptions/likes cannot be mirrored here.
   let ytView = null;
-  const apiWaiters = new Map();
-  let apiSeq = 0;
-  const ytApiKey = () => storage.get('pulse-yt-key') || '';
-
-  function loadYtAccount() {
-    if (!has('getYtAccount')) return;
-    ytAccount = {...ytAccount, ...parseJson(window.Android.getYtAccount(), {})};
-  }
-
-  function ytApi(path) {
-    return new Promise((resolve, reject) => {
-      if (!has('ytApi')) { reject(new Error('앱에서만 사용할 수 있어요.')); return; }
-      const id = `c${++apiSeq}`;
-      apiWaiters.set(id, {resolve, reject});
-      window.Android.ytApi(path, id);
-    });
-  }
-  window.onYtApi = (id, ok, data) => {
-    const w = apiWaiters.get(id);
-    if (!w) return;
-    apiWaiters.delete(id);
-    if (ok) w.resolve(data);
-    else w.reject(new Error(data?.error?.message || 'YouTube API 오류'));
-  };
-
-  const thumbOf = sn => sn?.thumbnails?.medium?.url || sn?.thumbnails?.high?.url || sn?.thumbnails?.default?.url || '';
-  const pageArg = token => token ? `&pageToken=${encodeURIComponent(token)}` : '';
-
-  function videosFromPlaylistItems(data) {
-    return (data.items || []).map(it => ({
-      videoId: it.contentDetails?.videoId || it.snippet?.resourceId?.videoId || '',
-      title: decodeEntities(it.snippet?.title || ''),
-      channel: decodeEntities(it.snippet?.videoOwnerChannelTitle || ''),
-      thumb: thumbOf(it.snippet)
-    })).filter(v => v.videoId && v.thumb && !/^(private|deleted) video$/i.test(v.title));
-  }
-
-  function playlistView(playlistId, title, parent) {
-    return {
-      kind: 'videos', title, playlistId, importName: title, parent,
-      loader: token => ytApi(`playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=${encodeURIComponent(playlistId)}${pageArg(token)}`)
-        .then(d => ({items: videosFromPlaylistItems(d), next: d.nextPageToken || '', total: d.pageInfo?.totalResults}))
-    };
-  }
-
-  function openYtView(v) {
-    v.items = []; v.next = undefined; v.error = ''; v.loading = false;
-    ytView = v;
-    if (activeFilter !== 'youtube' || view !== 'library') { if (view !== 'library') navigate('library'); setFilter('youtube'); }
-    loadMoreYt().then(() => el('ytResults').scrollIntoView({behavior: 'smooth', block: 'start'}));
-  }
-
-  async function loadMoreYt(silent = false) {
-    const v = ytView;
-    if (!v || v.loading || v.next === '') return;
-    v.loading = true; v.error = '';
-    if (!silent) renderYtResults();
-    try {
-      const r = await v.loader(v.next);
-      v.items.push(...r.items);
-      v.next = r.next || '';
-      if (r.total) v.total = r.total;
-    } catch (err) {
-      v.error = err.message;
-      v.next = '';
-    }
-    v.loading = false;
-    if (ytView === v) renderYtResults();
-  }
-
-  function addYouTubeMany(rows) {
-    let created = 0;
-    if (has('addYouTubeBatch')) {
-      const out = parseJson(window.Android.addYouTubeBatch(JSON.stringify(rows)), []);
-      for (const row of out) if (row && !track(row.id)) { media.push(row); created++; }
-    } else {
-      for (const r of rows) {
-        const id = `yt:${r.videoId}`;
-        if (track(id)) continue;
-        media.push({id, videoId: r.videoId, name: r.title || 'YouTube 영상', artist: r.author || 'YouTube', type: 'youtube', source: 'youtube',
-          duration: 0, size: 0, favorite: false, addedAt: Date.now(), thumb: `https://i.ytimg.com/vi/${r.videoId}/mqdefault.jpg`});
-        created++;
-      }
-      persistBrowserYouTube();
-    }
-    renderAll();
-    return created;
-  }
-
-  async function saveAllFromView(asPlaylist) {
-    const v = ytView;
-    if (!v) return;
-    if (v.next) {
-      toast('목록을 모두 불러오는 중…');
-      while (ytView === v && v.next && v.items.length < 1000) await loadMoreYt(true);
-    }
-    const rows = v.items.filter(x => x.videoId).map(x => ({videoId: x.videoId, title: x.title, author: x.channel}));
-    if (!rows.length) { toast('가져올 영상이 없어요.'); return; }
-    const created = addYouTubeMany(rows);
-    if (!asPlaylist) { toast(`${rows.length}개 영상을 YouTube 목록에 저장했어요${created ? ` (새로 ${created}개)` : ''}.`); renderYtResults(); return null; }
-    const key = v.playlistId || v.title;
-    let list = collections.lists.find(l => l.ytPlaylistId === key);
-    const isNew = !list;
-    if (!list) {
-      list = {id: makeId(), name: `▶ ${v.importName || v.title}`.slice(0, 64), tracks: [], createdAt: Date.now(), ytPlaylistId: key};
-      collections.lists.push(list);
-    }
-    list.tracks = [...new Set(rows.map(r => `yt:${r.videoId}`))];
-    collections.selectedId = list.id;
-    saveCollections();
-    renderAll();
-    toast(`'${list.name}' 플레이리스트${isNew ? '를 만들고' : '를 YouTube와 동기화하고'} ${list.tracks.length}개를 담았어요.`);
-    return list;
-  }
 
   function renderYtAccount() {
-    const box = el('ytAccount');
-    if (!box) return;
-    box.replaceChildren();
-    if (!native) { box.hidden = true; return; }
-    box.hidden = false;
-    if (!ytAccount.signedIn) {
-      const text = document.createElement('div');
-      text.className = 'yt-account-text';
-      text.append(Object.assign(document.createElement('strong'), {textContent: 'YouTube 계정 연결'}),
-        Object.assign(document.createElement('small'), {textContent: 'Google 계정으로 로그인하면 내 재생목록 · 좋아요 · 구독 채널을 앱에서 보고 가져올 수 있어요.'}));
-      box.append(text, button('Chrome으로 로그인', 'yt-login', ytLoginFlow, 'youtube'));
-      box.classList.remove('signed');
-      return;
-    }
-    box.classList.add('signed');
-    const who = document.createElement('div');
-    who.className = 'yt-who';
-    const av = document.createElement('span');
-    av.className = 'yt-avatar';
-    if (ytAccount.thumb) { const img = document.createElement('img'); img.src = ytAccount.thumb; img.alt = ''; av.appendChild(img); }
-    else av.textContent = (ytAccount.name || 'Y').charAt(0);
-    const name = document.createElement('div');
-    name.className = 'yt-account-text';
-    name.append(Object.assign(document.createElement('strong'), {textContent: ytAccount.name || 'YouTube 계정'}),
-      Object.assign(document.createElement('small'), {textContent: '로그인됨 · 내 YouTube'}));
-    who.append(av, name, button('', 'yt-logout', () => ytSignOutDialog(), 'more'));
-    const chips = document.createElement('div');
-    chips.className = 'yt-my';
-    chips.append(
-      button('좋아요 표시한 동영상', '', () => openYtView(playlistView(ytAccount.likes || 'LL', '좋아요 표시한 동영상')), 'heart'),
-      button('내 재생목록', '', openMyPlaylists, 'list'),
-      button('구독 채널', '', openSubscriptions, 'youtube')
-    );
-    box.append(who, chips);
+    const panel = el('ytAccount');
+    if (!panel) return;
+    panel.hidden = false;
+    panel.replaceChildren();
+    const text = document.createElement('div');
+    text.className = 'yt-account-text';
+    const heading = document.createElement('strong');
+    heading.textContent = 'Chrome에서 YouTube 사용';
+    const hint = document.createElement('small');
+    hint.textContent = '구글 로그인은 Chrome에서 합니다. 앱에는 API 키·클라이언트 ID·인증코드를 입력하지 않습니다.';
+    text.append(heading, hint);
+    panel.append(text, button('Chrome에서 열기 / 로그인', 'yt-login', () => openYouTubePage(''), 'external'));
   }
-
-  function openMyPlaylists() {
-    openYtView({
-      kind: 'playlists', title: '내 재생목록',
-      loader: token => ytApi(`playlists?part=snippet,contentDetails&mine=true&maxResults=50${pageArg(token)}`).then(d => ({
-        items: (d.items || []).map(p => ({id: p.id, title: decodeEntities(p.snippet?.title || ''), count: p.contentDetails?.itemCount || 0, thumb: thumbOf(p.snippet)})),
-        next: d.nextPageToken || ''
-      }))
-    });
-  }
-
-  function openSubscriptions() {
-    openYtView({
-      kind: 'channels', title: '구독 채널',
-      loader: token => ytApi(`subscriptions?part=snippet&mine=true&maxResults=50&order=alphabetical${pageArg(token)}`).then(d => ({
-        items: (d.items || []).map(c => ({channelId: c.snippet?.resourceId?.channelId || '', title: decodeEntities(c.snippet?.title || ''), thumb: thumbOf(c.snippet)})).filter(c => c.channelId),
-        next: d.nextPageToken || ''
-      }))
-    });
-  }
-
-  function ytSignOutDialog() {
-    modal(ytAccount.name || 'YouTube 계정', 'Google 계정 연결을 관리합니다. 로그아웃해도 앱에 저장한 영상과 플레이리스트는 그대로 남아요.', '닫기', closeModal);
-    el('dialogCancel').hidden = true;
-    el('dialogChoices').hidden = false;
-    el('dialogChoices').appendChild(button('로그아웃 (연결 해제)', 'dialog-option danger', () => {
-      if (has('ytSignOut')) window.Android.ytSignOut();
-      loadYtAccount(); ytView = null; closeModal(); renderYtAccount(); renderYtResults();
-      toast('YouTube 계정 연결을 해제했어요.');
-    }, 'close'));
-    el('dialogChoices').appendChild(button('OAuth 클라이언트 설정 변경', 'dialog-option', () => { closeModal(); ytClientDialog(false); }, 'settings'));
-  }
-
-  function ytClientDialog(signInAfter = true) {
-    modal('Google 계정 연결 설정 (최초 1회)',
-      '개인 YouTube 재생목록 · 구독 채널을 불러오려면 Google Cloud의 YouTube Data API v3 사용 설정과 OAuth 클라이언트(데스크톱 앱 유형)가 필요해요.\n\nGoogle Cloud → API 및 서비스 → 사용자 인증 정보 → OAuth 클라이언트 ID(데스크톱 앱)에서 발급된 ID를 입력하세요. 코드 입력 방식은 사용하지 않으며, 로그인은 항상 Chrome에서 진행합니다.',
-      signInAfter ? '저장하고 Chrome 로그인' : '저장', () => {
-        const id = el('dialogName').value.trim();
-        const secret = el('dialogSecret').value.trim();
-        if (!/^[A-Za-z0-9_.-]+\.apps\.googleusercontent\.com$/.test(id)) {
-          toast('데스크톱 앱 OAuth 클라이언트 ID를 확인해 주세요.'); el('dialogName').focus(); return;
-        }
-        window.Android.setYtClient(id, secret);
-        loadYtAccount();
-        closeModal();
-        renderYtAccount();
-        if (signInAfter) ytLoginFlow();
-        else toast('설정 저장 완료');
-      });
-    el('dialogHint').classList.add('pre');
-    el('dialogName').hidden = false;
-    el('dialogName').maxLength = 200;
-    el('dialogName').placeholder = '데스크톱 앱 OAuth 클라이언트 ID';
-    el('dialogName').value = '';
-    el('dialogSecret').hidden = false;
-    el('dialogSecret').placeholder = '클라이언트 보안 비밀 (필요한 경우만)';
-    el('dialogSecret').value = '';
-    el('dialogTools').hidden = false;
-    el('dialogTools').append(
-      button('Google Cloud 설정 열기', 'tool web', () => openExternal('https://console.cloud.google.com/apis/credentials'), 'external'),
-      button('클라이언트 ID 붙여넣기', 'tool', () => readClipboard().then(t => { el('dialogName').value = t.trim(); }), 'paste')
-    );
-  }
-
-  function ytLoginFlow() {
-    if (!has('ytSignIn')) { toast('앱에서만 로그인할 수 있어요.'); return; }
-    loadYtAccount();
-    if (!ytAccount.configured) { ytClientDialog(true); return; }
-    modal('Chrome에서 Google 로그인', 'Chrome에서 Google 계정을 선택하고 YouTube 접근을 허용하세요. 완료 후 앱으로 돌아옵니다.', '취소', closeModal);
-    el('dialogCancel').hidden = true;
-    el('dialogBackdrop').dataset.kind = 'auth';
-    window.Android.ytSignIn();
-  }
-
-  window.onYtReturn = () => { if (!ytAccount.signedIn) loadYtAccount(); renderYtAccount(); };
-
-  window.onYtAuth = ev => {
-    if (!ev) return;
-    const authOpen = !el('dialogBackdrop').hidden && el('dialogBackdrop').dataset.kind === 'auth';
-    if (ev.state === 'browser') {
-      if (!authOpen) return;
-      el('dialogHint').textContent = `${ev.chrome ? 'Chrome' : '브라우저'}에서 사용할 Google 계정을 고르고 “계속/허용”을 누르세요. 완료되면 자동으로 Pulse Player로 돌아와요.`;
-      const tools = el('dialogTools');
-      tools.replaceChildren();
-      tools.hidden = false;
-      const wait = document.createElement('small');
-      wait.className = 'tools-query';
-      wait.textContent = '로그인을 기다리는 중… (10분 안에 완료하세요)';
-      tools.append(button(ev.chrome ? 'Chrome 로그인 화면 다시 열기' : '로그인 화면 다시 열기', 'tool paste wide', () => window.Android.ytReopenBrowser(), 'external'), wait);
-      return;
-    }
-    if (ev.state === 'done') {
-      loadYtAccount();
-      if (authOpen) closeModal();
-      renderYtAccount();
-      if (activeFilter !== 'youtube') { if (view !== 'library') navigate('library'); setFilter('youtube'); }
-      toast(`${ytAccount.name || 'YouTube'} 계정으로 로그인했어요.`);
-      return;
-    }
-    if (ev.state === 'expired') {
-      loadYtAccount(); renderYtAccount();
-      toast('YouTube 로그인이 만료됐어요. 다시 로그인해 주세요.');
-      return;
-    }
-    if (ev.state === 'error') {
-      if (authOpen) closeModal();
-      modal('로그인하지 못했어요', ev.message || '알 수 없는 오류', '다시 시도', () => { closeModal(); ytLoginFlow(); });
-      el('dialogChoices').hidden = false;
-      el('dialogChoices').appendChild(button('OAuth 데스크톱 앱 설정 확인', 'dialog-option', () => { closeModal(); ytClientDialog(true); }, 'settings'));
-    }
-  };
 
   function ytSearch(query) {
-    const q = query.trim();
+    const q = String(query || '').trim();
     if (!q) { el('ytQuery').focus(); return; }
-    if (ytIdFrom(q)) { addYouTube(q, false); el('ytQuery').value = ''; return; }
-    const key = ytApiKey();
-    if (ytAccount.signedIn) {
-      openYtView({
-        kind: 'videos', title: `“${q}” 검색 결과`,
-        loader: token => ytApi(`search?part=snippet&type=video&maxResults=25&regionCode=KR&relevanceLanguage=ko&q=${encodeURIComponent(q)}${pageArg(token)}`)
-          .then(d => ({items: (d.items || []).filter(it => it.id?.videoId).map(it => ({videoId: it.id.videoId, title: decodeEntities(it.snippet?.title || ''),
-            channel: decodeEntities(it.snippet?.channelTitle || ''), thumb: thumbOf(it.snippet)})), next: d.nextPageToken || ''}))
-      });
+    const id = ytIdFrom(q);
+    if (id) {
+      addYouTube(id, true);
+      el('ytQuery').value = '';
       return;
     }
-    if (key) {
-      openYtView({
-        kind: 'videos', title: `“${q}” 검색 결과`,
-        loader: token => fetch(`https://www.googleapis.com/youtube/v3/search?${new URLSearchParams({part: 'snippet', type: 'video', maxResults: '20', q, key, videoEmbeddable: 'true', regionCode: 'KR', relevanceLanguage: 'ko', ...(token ? {pageToken: token} : {})})}`)
-          .then(r => r.json()).then(d => {
-            if (d.error) throw new Error(d.error.message || 'API 오류');
-            return {items: (d.items || []).filter(it => it.id?.videoId).map(it => ({videoId: it.id.videoId, title: decodeEntities(it.snippet?.title || ''),
-              channel: decodeEntities(it.snippet?.channelTitle || ''), thumb: thumbOf(it.snippet)})), next: d.nextPageToken || ''};
-          })
-      });
-      return;
-    }
-    const url = `https://m.youtube.com/results?search_query=${encodeURIComponent(q)}`;
-    if (has('openBrowser')) window.Android.openBrowser(url, 'youtube');
-    else window.open(url, '_blank', 'noopener');
+    // Official YouTube search is rendered by Chrome without API quota.
+    openChromeYouTube(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`);
   }
 
   function renderYtResults() {
     const box = el('ytResults');
-    renderYtAccount();
-    const v = ytView;
+    if (!box) return;
     box.replaceChildren();
-    if (!v) return;
-    const head = document.createElement('div');
-    head.className = 'yt-results-head';
-    const left = document.createElement('div');
-    left.className = 'yt-results-title';
-    if (v.parent) left.appendChild(button('', 'yt-back', () => { ytView = v.parent; renderYtResults(); }, 'skip-prev'));
-    left.appendChild(Object.assign(document.createElement('strong'), {textContent: `${v.title}${v.items.length ? ` · ${v.total || v.items.length}` : ''}`}));
-    head.append(left, button('닫기', 'link', () => { ytView = null; renderYtResults(); }));
-    box.appendChild(head);
-    if (v.kind === 'videos' && v.items.length) {
-      const actions = document.createElement('div');
-      actions.className = 'yt-view-actions';
-      actions.appendChild(button('▶ 전체 재생', 'primary', async () => {
-        const list = await saveAllFromView(!!v.importName);
-        collections.queueId = list ? list.id : '';
-        saveCollections();
-        const first = v.items[0];
-        if (first) playItem(`yt:${first.videoId}`, true);
-      }));
-      if (v.importName) actions.appendChild(button('Pulse 플레이리스트로 가져오기', '', () => saveAllFromView(true), 'list-add'));
-      actions.appendChild(button('모두 저장', '', () => saveAllFromView(false), 'plus'));
-      box.appendChild(actions);
-    }
-    for (const r of v.items) {
-      const card = document.createElement('div');
-      card.className = 'yt-result' + (v.kind === 'channels' ? ' channel' : '');
-      const img = document.createElement('img');
-      img.src = r.thumb || ''; img.alt = ''; img.loading = 'lazy';
-      const text = document.createElement('div');
-      text.className = 'yt-result-text';
-      const sub = v.kind === 'playlists' ? `${r.count}개 영상` : v.kind === 'channels' ? '채널 · 최신 업로드 보기' : r.channel;
-      text.append(Object.assign(document.createElement('strong'), {textContent: r.title}), Object.assign(document.createElement('small'), {textContent: sub}));
-      if (v.kind === 'videos') {
-        const id = `yt:${r.videoId}`;
-        const savedItem = track(id);
-        const saved = !!savedItem;
-        const isFavorite = !!savedItem?.favorite;
-        const actions = document.createElement('div');
-        actions.className = 'yt-result-actions';
-        const heart = button('', 'yt-mini yt-heart' + (isFavorite ? ' active' : ''), () => {
-          if (!track(id)) addYouTube(r.videoId, false, {title: r.title, author: r.channel});
-          if (track(id)) toggleFavorite(id);
-        }, 'heart');
-        heart.setAttribute('aria-label', isFavorite ? 'YouTube 즐겨찾기 해제' : 'YouTube 즐겨찾기 추가');
-        heart.title = isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가';
-        actions.append(
-          button('', 'yt-mini', () => addYouTube(r.videoId, true, {title: r.title, author: r.channel}), 'play'),
-          button(saved ? '✓' : '', 'yt-mini' + (saved ? ' saved' : ''), () => { if (!saved) addYouTube(r.videoId, false, {title: r.title, author: r.channel}); }, saved ? '' : 'plus'),
-          heart
-        );
-        card.append(img, text, actions);
-      } else {
-        card.classList.add('clickable');
-        card.addEventListener('click', () => {
-          const child = v.kind === 'playlists' ? playlistView(r.id, r.title, v)
-            : {...playlistView(`UU${r.channelId.slice(2)}`, `${r.title} 업로드`, v), importName: `${r.title} 업로드`};
-          openYtView(child);
-        });
-        card.append(img, text, icon('chevron'));
-      }
-      box.appendChild(card);
-    }
-    if (v.loading) box.appendChild(Object.assign(document.createElement('p'), {className: 'yt-loading', textContent: '불러오는 중…'}));
-    else if (v.error) box.appendChild(Object.assign(document.createElement('p'), {className: 'yt-loading', textContent: `불러오지 못했어요: ${v.error}`}));
-    else if (!v.items.length) box.appendChild(Object.assign(document.createElement('p'), {className: 'yt-loading', textContent: '항목이 없어요.'}));
-    if (v.next) box.appendChild(button('더 보기', 'more-button', () => loadMoreYt()));
-  }
-
-  function ytKeyDialog() {
-    modal('앱 내 YouTube 검색 (선택)', 'Google 계정으로 로그인했다면 키 없이도 앱 안에서 검색돼요. 로그인 없이 쓰려면 본인의 YouTube Data API 키를 넣으면 검색 결과가 앱 안에 바로 표시돼요. 비워 두면 YouTube 화면이 열려 검색합니다. 키는 이 기기에만 저장됩니다.', '저장', () => {
-      const key = el('dialogName').value.trim();
-      storage.set('pulse-yt-key', key);
-      closeModal();
-      toast(key ? '앱 내 검색을 켰어요.' : '앱 내 검색을 껐어요. YouTube 화면에서 검색합니다.');
-    });
-    el('dialogName').hidden = false;
-    el('dialogName').maxLength = 300;
-    el('dialogName').placeholder = 'AIza… (비우면 사용 안 함)';
-    el('dialogName').value = ytApiKey();
+    renderYtAccount();
+    const hint = document.createElement('p');
+    hint.className = 'yt-loading';
+    hint.textContent = 'Chrome에서 원하는 영상을 검색·재생하고 “공유 → 링크 복사” 후 이 앱에 붙여넣어 즐겨찾기나 플레이리스트에 저장할 수 있습니다.';
+    box.appendChild(hint);
   }
 
   // ---------------------------------------------------------------- play control
@@ -1855,8 +1340,7 @@
     if (!isYT(item)) storage.set('pulse-last-yt', '');
     if (isYT(item)) {
       storage.set('pulse-last-yt', id);
-      if (same && ytState.active && ytState.ready) togglePlayback();
-      else ytPlay(item);
+      ytPlay(item);
     } else if (native) {
       playing = false;
       preparing = true;
@@ -1877,7 +1361,7 @@
       renderAll();
       element.play().catch(() => toast('지원되지 않는 파일 형식이거나 코덱입니다.'));
     }
-    if (window.matchMedia('(max-width:760px)').matches && (isYT(item) || item.type === 'audio' || !native)) navigate('player');
+    if (window.matchMedia('(max-width:760px)').matches && !isYT(item) && (item.type === 'audio' || !native)) navigate('player');
   }
 
   function togglePlayback() {
@@ -1888,14 +1372,7 @@
       playItem(pool[0].id);
       return;
     }
-    if (isYT(item)) {
-      if (!ytState.active || !ytState.ready) { ytPlay(item); return; }
-      try {
-        if (ytState.player.getPlayerState() === 1) ytState.player.pauseVideo();
-        else ytState.player.playVideo();
-      } catch (_) { ytPlay(item); }
-      return;
-    }
+    if (isYT(item)) { ytPlay(item); return; }
     if (native) {
       if (item.type === 'video') window.Android.play(item.id);
       else window.Android.toggle(item.id);
@@ -1918,7 +1395,6 @@
       if (direction > 0) window.Android.next(); else window.Android.previous();
       return;
     }
-    if (isYT(item) && direction < 0 && position > 4000 && ytState.ready) { seekTo(0); return; }
     const candidates = activeQueueItems(item.type);
     if (!candidates.length) return;
     const idx = candidates.findIndex(row => row.id === item.id);
@@ -1942,7 +1418,7 @@
     const item = current();
     if (!item) return;
     position = Math.max(0, Math.round(ms));
-    if (isYT(item)) { if (ytState.ready) ytState.player.seekTo(position / 1000, true); }
+    if (isYT(item)) { toast('YouTube 재생 위치는 Chrome에서 조절하세요.'); return; }
     else if (native) window.Android.seekTo(position);
     else if (browserElement && Number.isFinite(browserElement.duration)) browserElement.currentTime = position / 1000;
     updateLyricHighlight();
@@ -1988,20 +1464,23 @@
     if (activeFilter === 'youtube') renderYtResults();
   }
 
+  window.onNativePlaybackFailure = message => {
+    playing = false;
+    preparing = false;
+    lastError = String(message || '오디오 재생 서비스를 실행하지 못했습니다.');
+    renderNow();
+    toast(lastError);
+  };
+
   window.onNativeLibrary = nativeLibrary;
   window.onNativeState = incoming => {
     if (!incoming || typeof incoming !== 'object') return;
     shuffle = !!incoming.shuffle;
     repeat = Number(incoming.repeat) || 0;
     speed = Number(incoming.speed) || 1;
-    if (isYT(current()) && ytState.active) {
+    if (isYT(current())) {
       const other = incoming.id && track(incoming.id);
-      const nativeTookOver = other && !isYT(other) && (incoming.playing || incoming.video);
-      if (!nativeTookOver) { renderNow(); return; }
-      ytStop();
-    } else if (isYT(current()) && !(incoming.playing || incoming.preparing || incoming.video)) {
-      renderNow();
-      return;
+      if (!(other && !isYT(other) && (incoming.playing || incoming.preparing || incoming.video))) return;
     }
     const changed = incoming.id && incoming.id !== currentId && !!track(incoming.id);
     if (changed) currentId = incoming.id;
@@ -2014,10 +1493,8 @@
     if (changed || wasPlaying !== playing) renderLibrary();
     renderNow();
   };
-  window.onNativeVideoStart = () => { if (ytState.active) { ytStop(); renderNow(); } };
+  window.onNativeVideoStart = () => { ytStop(); renderNow(); };
   window.onAppVisibility = visible => {
-    // Personal build: YouTube keeps playing in the background unless the user turned it off in settings.
-    if (!visible && !bgPlay && ytState.active && ytState.ready) { try { ytState.player.pauseVideo(); } catch (_) { /* ignore */ } }
     if (visible && native && permissionGranted && scanState !== 'scanning' && Date.now() - lastScanAt > 5 * 60 * 1000) requestDeviceScan(false);
   };
   document.addEventListener('visibilitychange', () => window.onAppVisibility(document.visibilityState === 'visible'));
@@ -2078,16 +1555,7 @@
       }, 'folder'));
     }
     p.appendChild(button('파일 직접 추가', 'dialog-option', () => { closeModal(); importFiles(); }, 'plus'));
-    if (has('setBackgroundPlay')) p.appendChild(button(`YouTube 백그라운드 재생: ${bgPlay ? '켜짐' : '꺼짐'} (눌러서 변경)`, 'dialog-option', () => {
-      bgPlay = !bgPlay;
-      window.Android.setBackgroundPlay(bgPlay);
-      closeModal(); renderNow(); reportYt(true);
-      toast(bgPlay ? 'YouTube를 화면을 꺼도 계속 재생해요.' : '앱을 벗어나면 YouTube를 일시정지해요.');
-    }, 'headphones'));
-    if (has('ytSignIn')) p.appendChild(button(ytAccount.signedIn ? `YouTube 계정: ${ytAccount.name || '로그인됨'} (관리)` : 'YouTube 계정 로그인 (Google)', 'dialog-option', () => {
-      closeModal(); if (ytAccount.signedIn) ytSignOutDialog(); else ytLoginFlow();
-    }, 'youtube'));
-    p.appendChild(button('앱 내 YouTube 검색 설정', 'dialog-option', () => { closeModal(); ytKeyDialog(); }, 'youtube'));
+    p.appendChild(button('Chrome에서 YouTube 로그인 · 재생', 'dialog-option', () => { closeModal(); openYouTubePage(''); }, 'youtube'));
     p.appendChild(button('백업 내보내기 (플레이리스트·가사·즐겨찾기·YouTube)', 'dialog-option', () => {
       const json = buildBackup();
       if (has('shareText')) window.Android.shareText(json, 'Pulse Player 백업');
@@ -2179,8 +1647,6 @@
     el('miniToggle').addEventListener('click', togglePlayback);
     el('miniPrev').addEventListener('click', () => nextPrevious(-1));
     el('miniNext').addEventListener('click', () => nextPrevious(1));
-    el('ytDockExpand').addEventListener('click', () => { lyricsOpen = false; navigate('player'); });
-    el('ytDockClose').addEventListener('click', () => { ytStop(true); playing = false; renderAll(); });
     el('ytForm').addEventListener('submit', e => { e.preventDefault(); ytSearch(el('ytQuery').value); });
     el('ytBrowse').addEventListener('click', () => openYouTubePage(''));
     el('ytOfficialDownload').addEventListener('click', () => openYouTubeOffline(isYT(current()) ? current().videoId : ''));
@@ -2189,7 +1655,6 @@
       if (ytIdFrom(text)) addYouTube(text, false);
       else toast('복사한 내용에 YouTube 링크가 없어요. YouTube 앱에서 “공유 → 링크 복사” 후 눌러 보세요.');
     }));
-    el('ytKey').addEventListener('click', ytKeyDialog);
     el('shuffle').addEventListener('click', () => { shuffle = !shuffle; setOptions(); toast(shuffle ? '셔플 켜짐' : '셔플 꺼짐'); });
     el('repeat').addEventListener('click', () => {
       repeat = (repeat + 1) % 3; setOptions();
@@ -2218,8 +1683,6 @@
     };
     el('progress').addEventListener('change', finishSeek);
     el('progress').addEventListener('pointerup', finishSeek);
-    window.addEventListener('resize', () => placeYtDock());
-    if (window.ResizeObserver) new ResizeObserver(() => placeYtDock()).observe(document.body);
     bindBrowser(browserAudio); bindBrowser(browserVideo);
     if (native) {
       const prefs = parseJson(window.Android.getPreferences(), {});
@@ -2228,8 +1691,6 @@
       currentId = storage.get('pulse-last-yt') || prefs.lastId || '';
       hiddenCount = Number(prefs.hiddenCount) || 0;
       appVersion = prefs.version || appVersion;
-      loadYtAccount();
-      bgPlay = has('getBackgroundPlay') ? !!window.Android.getBackgroundPlay() : true;
       lastScanAt = Number(prefs.lastScan) || 0;
       permissionGranted = has('hasMediaPermission') ? !!window.Android.hasMediaPermission() : false;
       nativeLibrary(parseJson(window.Android.getLibrary(), []));

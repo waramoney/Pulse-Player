@@ -19,9 +19,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
-import android.text.Html;
 import android.text.TextUtils;
-import android.util.Base64;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
@@ -41,21 +39,12 @@ import android.widget.MediaController;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
-import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.InetAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -72,14 +61,13 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /* JADX INFO: loaded from: classes2.dex */
-public final class MainActivity extends Activity implements YouTubePlaybackService.Listener {
+public final class MainActivity extends Activity {
     private static final String ASSET_HOST = "appassets.androidplatform.net";
     private static final String ASSET_ORIGIN = "https://appassets.androidplatform.net";
     private static final int REQUEST_IMPORT = 1001;
     private static final int REQUEST_MEDIA_PERMISSION = 1002;
     private static final String START_URL = "https://appassets.androidplatform.net/assets/index.html";
     private static final Pattern YT_ID = Pattern.compile("^[A-Za-z0-9_-]{11}$");
-    private static final String YT_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
     private FrameLayout browserFrame;
     private TextView browserPrimary;
     private TextView browserFavorite;
@@ -89,7 +77,6 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
     private boolean browserVisible;
     private WebChromeClient.CustomViewCallback customCallback;
     private View customView;
-    private volatile ServerSocket loopbackServer;
     private SharedPreferences prefs;
     private FrameLayout root;
     private boolean scanning;
@@ -100,43 +87,27 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
     private TextView videoTitle;
     private VideoView videoView;
     private boolean webReady;
-    private KeepAliveWebView webView;
-    private boolean ytActive;
-    private boolean backgroundPlay = true;
+    private WebView webView;
     private String videoId = "";
     private String browserMode = "web";
     private String browserVideoId = "";
     private final Object libraryLock = new Object();
     private final ExecutorService metadataExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService netExecutor = Executors.newSingleThreadExecutor();
-    private final ExecutorService apiExecutor = Executors.newFixedThreadPool(2);
     private final Random random = new Random();
-    private volatile String lastAuthUrl = "";
-    private final Object tokenLock = new Object();
-
-    static final class KeepAliveWebView extends WebView {
-        boolean keepAlive;
-
-        KeepAliveWebView(Context context) {
-            super(context);
-        }
-
-        @Override // android.webkit.WebView, android.view.View
-        protected void onWindowVisibilityChanged(int i) {
-            if (this.keepAlive && i != 0) {
-                super.onWindowVisibilityChanged(0);
-            } else {
-                super.onWindowVisibilityChanged(i);
-            }
-        }
-    }
 
     @Override // android.app.Activity
     public void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         this.prefs = getSharedPreferences("pulse", 0);
-        this.backgroundPlay = this.prefs.getBoolean("ytBackground", true);
-        YouTubePlaybackService.listener = this;
+        // Previous OAuth credentials are not needed: Chrome owns account sign-in.
+        if (this.prefs.contains("ytClientId") || this.prefs.contains("ytRefresh") ||
+            this.prefs.contains("ytAccess") || this.prefs.contains("ytClientSecret")) {
+            this.prefs.edit().remove("ytClientId").remove("ytClientSecret")
+                .remove("ytClientType").remove("ytAccess").remove("ytRefresh")
+                .remove("ytExpiry").remove("ytAccountName").remove("ytAccountThumb")
+                .remove("ytLikes").remove("ytBackground").apply();
+        }
         getWindow().setStatusBarColor(Color.rgb(11, 13, 21));
         getWindow().setNavigationBarColor(Color.rgb(11, 13, 21));
         createViews();
@@ -154,7 +125,7 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
                 }
             });
         }
-        this.webView = new KeepAliveWebView(this);
+        this.webView = new WebView(this);
         this.webView.setBackgroundColor(0);
         try {
             this.webView.setRendererPriorityPolicy(2, false);
@@ -559,11 +530,17 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
     }
 
     /* JADX INFO: Access modifiers changed from: private */
-    public boolean hasMediaPermission() {
-        if (Build.VERSION.SDK_INT >= 33) {
-            return checkSelfPermission("android.permission.READ_MEDIA_AUDIO") == 0 || checkSelfPermission("android.permission.READ_MEDIA_VIDEO") == 0 || (Build.VERSION.SDK_INT >= 34 && checkSelfPermission("android.permission.READ_MEDIA_VISUAL_USER_SELECTED") == 0);
-        }
-        return checkSelfPermission("android.permission.READ_EXTERNAL_STORAGE") == 0;
+    private boolean hasAudioPermission() {
+        return Build.VERSION.SDK_INT >= 33
+            ? checkSelfPermission("android.permission.READ_MEDIA_AUDIO") == 0
+            : checkSelfPermission("android.permission.READ_EXTERNAL_STORAGE") == 0;
+    }
+
+    private boolean hasMediaPermission() {
+        if (hasAudioPermission()) return true;
+        return Build.VERSION.SDK_INT >= 33 &&
+            (checkSelfPermission("android.permission.READ_MEDIA_VIDEO") == 0 ||
+            (Build.VERSION.SDK_INT >= 34 && checkSelfPermission("android.permission.READ_MEDIA_VISUAL_USER_SELECTED") == 0));
     }
 
     /* JADX INFO: Access modifiers changed from: private */
@@ -681,6 +658,7 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
     }
 
     private int queryStore(boolean video, List<JSONObject> output) {
+        if (!video && !hasAudioPermission()) return 0;
         Uri baseUri = video ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
         List<String> projection = new ArrayList<>();
         String[] core = {"_id", "title", "_display_name", "_size", "duration", "date_added", "date_modified", "mime_type"};
@@ -1139,20 +1117,21 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
     }
 
     /* JADX INFO: Access modifiers changed from: private */
-    public void audioIntent(String str, String str2, int i) {
-        Intent action = new Intent(this, (Class<?>) AudioPlaybackService.class).setAction(str);
-        if (str2 != null) {
-            action.putExtra("id", str2);
-        }
-        action.putExtra("position", i);
+    public void audioIntent(String action, String id, int position) {
+        Intent intent = new Intent(this, AudioPlaybackService.class).setAction(action);
+        if (id != null) intent.putExtra("id", id);
+        intent.putExtra("position", position);
         try {
-            if (AudioPlaybackService.ACT_PLAY.equals(str) && AudioPlaybackService.instance == null) {
-                startForegroundService(action);
+            if (AudioPlaybackService.ACT_PLAY.equals(action)) {
+                // Required for Android 8+ and for consistent foreground playback.
+                startForegroundService(intent);
             } else if (AudioPlaybackService.instance != null) {
-                startService(action);
+                startService(intent);
             }
         } catch (Exception e) {
-            Toast.makeText(this, "재생 서비스를 시작할 수 없습니다.", 0).show();
+            String message = "오디오 재생 서비스를 시작하지 못했습니다 (" + e.getClass().getSimpleName() + ")";
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            js("window.onNativePlaybackFailure && window.onNativePlaybackFailure(" + JSONObject.quote(message) + ");");
         }
     }
 
@@ -1167,6 +1146,11 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
         if (!"youtube".equals(strOptString)) {
             if ("video".equals(strOptString)) {
                 showVideo(str);
+                return;
+            }
+            if ("device".equals(jSONObjectFindTrack.optString("source")) && !hasAudioPermission()) {
+                Toast.makeText(this, "음악 파일 접근 권한이 필요합니다. 권한을 허용한 뒤 다시 재생하세요.", Toast.LENGTH_LONG).show();
+                requestMediaPermission();
                 return;
             }
             if (this.videoActive) {
@@ -1378,6 +1362,14 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
                 public boolean shouldOverrideUrlLoading(WebView webView, WebResourceRequest webResourceRequest) {
                     String string = webResourceRequest.getUrl().toString();
                     if (string.startsWith("http://") || string.startsWith("https://")) {
+                        Uri target = Uri.parse(string);
+                        String host = target.getHost() == null ? "" : target.getHost().toLowerCase(Locale.ROOT);
+                        if (host.equals("youtube.com") || host.endsWith(".youtube.com") ||
+                            host.equals("youtu.be") || host.equals("accounts.google.com")) {
+                            MainActivity.this.closeBrowser();
+                            MainActivity.this.openInChrome(string);
+                            return true;
+                        }
                         return false;
                     }
                     if (!string.startsWith("intent://")) {
@@ -1510,6 +1502,13 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
     public void openBrowser(String str, String str2) {
         if (str != null) {
             if (str.startsWith("https://") || str.startsWith("http://")) {
+                Uri target = Uri.parse(str);
+                String host = target.getHost() == null ? "" : target.getHost().toLowerCase(Locale.ROOT);
+                if ("youtube".equals(str2) || host.equals("youtube.com") || host.endsWith(".youtube.com") || host.equals("youtu.be")) {
+                    closeBrowser();
+                    openInChrome(str);
+                    return;
+                }
                 ensureBrowser();
                 if (str2 == null) {
                     str2 = "web";
@@ -1722,525 +1721,35 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
         }
     }
 
-    private static final class HttpResult {
-        String body;
-        int code;
-
-        private HttpResult() {
-            this.body = "";
-        }
-    }
-
-    public static HttpResult http(String method, String url, String body, String bearer) {
-        HttpResult result = new HttpResult();
-        HttpURLConnection connection = null;
+    // Chrome shares its own Google account session. No Google API project,
+    // OAuth redirect server, API key, token storage or video iframe is used.
+    private void openInChrome(String address) {
+        if (address == null) return;
+        Uri uri;
         try {
-            connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setConnectTimeout(12000);
-            connection.setReadTimeout(15000);
-            connection.setRequestMethod(method);
-            connection.setRequestProperty("Accept", "application/json");
-            if (bearer != null && !bearer.isEmpty()) {
-                connection.setRequestProperty("Authorization", "Bearer " + bearer);
+            uri = Uri.parse(address);
+            String host = uri.getHost();
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || host == null ||
+                !(host.equals("youtube.com") || host.endsWith(".youtube.com") ||
+                  host.equals("youtu.be") || host.equals("accounts.google.com"))) {
+                Toast.makeText(this, "YouTube/Google HTTPS 주소만 Chrome으로 열 수 있습니다.", Toast.LENGTH_SHORT).show();
+                return;
             }
-            if (body != null) {
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-                byte[] encodedBody = body.getBytes("UTF-8");
-                connection.setFixedLengthStreamingMode(encodedBody.length);
-                try (OutputStream out = connection.getOutputStream()) {
-                    out.write(encodedBody);
-                }
-            }
-            result.code = connection.getResponseCode();
-            InputStream stream = result.code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            if (stream != null) {
-                try (InputStream input = stream; ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
-                    byte[] chunk = new byte[8192];
-                    int count;
-                    while (buffer.size() < 4000000 && (count = input.read(chunk)) > 0) {
-                        buffer.write(chunk, 0, Math.min(count, 4000000 - buffer.size()));
-                    }
-                    result.body = buffer.toString("UTF-8");
-                }
-            }
-        } catch (Exception ex) {
-            result.code = -1;
-            result.body = "{\"error\":\"network\",\"error_description\":" + JSONObject.quote(String.valueOf(ex.getMessage())) + "}";
-        } finally {
-            if (connection != null) connection.disconnect();
-        }
-        return result;
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public static String enc(String str) {
-        if (str == null) {
-            str = "";
-        }
-        try {
-            return URLEncoder.encode(str, "UTF-8");
         } catch (Exception e) {
-            return "";
+            Toast.makeText(this, "브라우저 주소가 잘못되었습니다.", Toast.LENGTH_SHORT).show();
+            return;
         }
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void authEvent(JSONObject jSONObject) {
-        jsOnUi("window.onYtAuth && window.onYtAuth(" + jSONObject.toString() + ");");
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void authError(String str) {
-        try {
-            JSONObject jSONObject = new JSONObject();
-            jSONObject.put("state", "error");
-            jSONObject.put("message", str);
-            authEvent(jSONObject);
-        } catch (Exception e) {
-        }
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public JSONObject accountJson() {
-        JSONObject jSONObject = new JSONObject();
-        try {
-            jSONObject.put("configured", !this.prefs.getString("ytClientId", "").isEmpty());
-            jSONObject.put("signedIn", this.prefs.getString("ytRefresh", "").isEmpty() ? false : true);
-            jSONObject.put("name", this.prefs.getString("ytAccountName", ""));
-            jSONObject.put("thumb", this.prefs.getString("ytAccountThumb", ""));
-            String string = this.prefs.getString("ytClientId", "");
-            if (string.length() > 14) {
-                string = string.substring(0, 10) + "…";
-            }
-            jSONObject.put("clientHint", string);
-            jSONObject.put("clientType", clientType());
-            jSONObject.put("chrome", isChromeInstalled());
-        } catch (Exception e) {
-        }
-        return jSONObject;
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public static String describeOAuthError(JSONObject jSONObject) {
-        String strOptString = jSONObject.optString("error");
-        String strOptString2 = jSONObject.optString("error_description");
-        if ("access_denied".equals(strOptString)) {
-            return "로그인을 거부했어요.";
-        }
-        if ("expired_token".equals(strOptString)) {
-            return "코드가 만료됐어요. 다시 시도해 주세요.";
-        }
-        if ("invalid_client".equals(strOptString) || "unauthorized_client".equals(strOptString)) {
-            return "Google OAuth 클라이언트는 '데스크톱 앱' 유형이어야 합니다. 클라이언트 ID와 보안 비밀을 확인하세요.";
-        }
-        if ("invalid_scope".equals(strOptString)) {
-            return "YouTube 권한을 요청할 수 없어요. 클라이언트 유형을 확인하세요.";
-        }
-        if ("network".equals(strOptString)) {
-            return "인터넷 연결을 확인하세요.";
-        }
-        if ("redirect_uri_mismatch".equals(strOptString)) {
-            return "Chrome 인증 리디렉션이 거부되었습니다. Google Cloud의 데스크톱 앱 OAuth 클라이언트 ID를 사용하세요.";
-        }
-        StringBuilder sbAppend = new StringBuilder().append("로그인 실패: ");
-        if (!strOptString2.isEmpty()) {
-            strOptString = strOptString2;
-        }
-        return sbAppend.append(strOptString).toString();
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public String clientType() {
-        return "desktop";
-    }
-
-    private boolean isChromeInstalled() {
-        try {
-            getPackageManager().getPackageInfo("com.android.chrome", 0);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private static String randomToken(int i) {
-        byte[] bArr = new byte[i];
-        new SecureRandom().nextBytes(bArr);
-        return Base64.encodeToString(bArr, 11);
-    }
-
-    private static String pkceChallenge(String str) throws Exception {
-        return Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(str.getBytes("US-ASCII")), 11);
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void closeLoopback() {
-        ServerSocket serverSocket = this.loopbackServer;
-        this.loopbackServer = null;
-        if (serverSocket != null) {
-            try {
-                serverSocket.close();
-            } catch (Exception e) {
-            }
-        }
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void openInChrome(String str) {
-        Intent intent = new Intent("android.intent.action.VIEW", Uri.parse(str));
-        Bundle bundle = new Bundle();
-        bundle.putBinder("android.support.customtabs.extra.SESSION", null);
-        intent.putExtras(bundle);
-        intent.putExtra("android.support.customtabs.extra.TOOLBAR_COLOR", Color.rgb(28, 22, 40));
-        intent.putExtra("android.support.customtabs.extra.TITLE_VISIBILITY", 1);
-        if (isChromeInstalled()) {
-            intent.setPackage("com.android.chrome");
-        }
+        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+        intent.setPackage("com.android.chrome");
         try {
             startActivity(intent);
-        } catch (Exception e) {
+        } catch (Exception chromeUnavailable) {
             intent.setPackage(null);
             try {
                 startActivity(intent);
-            } catch (Exception e2) {
-                authError("로그인 페이지를 열 브라우저가 없어요.");
-            }
-        }
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void startChromeSignIn() {
-        final String string = this.prefs.getString("ytClientId", "");
-        final String string2 = this.prefs.getString("ytClientSecret", "");
-        if (string.isEmpty()) {
-            authError("먼저 OAuth 클라이언트 ID를 설정하세요.");
-            return;
-        }
-        closeLoopback();
-        try {
-            final ServerSocket serverSocket = new ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"));
-            serverSocket.setSoTimeout(600000);
-            this.loopbackServer = serverSocket;
-            final String str = "http://127.0.0.1:" + serverSocket.getLocalPort();
-            final String strRandomToken = randomToken(48);
-            final String strRandomToken2 = randomToken(16);
-            try {
-                String str2 = "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=" + enc(string) + "&redirect_uri=" + enc(str) + "&scope=" + enc(YT_SCOPE) + "&code_challenge=" + enc(pkceChallenge(strRandomToken)) + "&code_challenge_method=S256&state=" + enc(strRandomToken2) + "&access_type=offline&prompt=" + enc("select_account consent");
-                new Thread(new Runnable() { // from class: com.pulse.player.MainActivity.26
-                    @Override // java.lang.Runnable
-                    public void run() {
-                        JSONObject jSONObject;
-                        while (MainActivity.this.loopbackServer == serverSocket) {
-                            try {
-                                try {
-                                    Socket socketAccept = serverSocket.accept();
-                                    try {
-                                        try {
-                                            socketAccept.setSoTimeout(10000);
-                                            String line = new BufferedReader(new InputStreamReader(socketAccept.getInputStream(), "UTF-8")).readLine();
-                                            if (line == null || !line.startsWith("GET ")) {
-                                                MainActivity.respond(socketAccept, 400, "잘못된 요청");
-                                                try {
-                                                    socketAccept.close();
-                                                } catch (Exception e) {
-                                                }
-                                            } else {
-                                                Uri uri = Uri.parse("http://127.0.0.1" + line.split(" ")[1]);
-                                                if (uri.getQueryParameter("code") == null && uri.getQueryParameter("error") == null) {
-                                                    MainActivity.respond(socketAccept, 404, "");
-                                                    try {
-                                                        socketAccept.close();
-                                                    } catch (Exception e2) {
-                                                    }
-                                                } else {
-                                                    if (strRandomToken2.equals(uri.getQueryParameter("state"))) {
-                                                        String queryParameter = uri.getQueryParameter("error");
-                                                        if (queryParameter != null) {
-                                                            MainActivity.this.respondDone(socketAccept, false, "access_denied".equals(queryParameter) ? "로그인을 취소했어요." : "로그인 실패: " + queryParameter);
-                                                            MainActivity.this.closeLoopback();
-                                                            MainActivity.this.authError("access_denied".equals(queryParameter) ? "로그인을 취소했어요." : "로그인 실패: " + queryParameter);
-                                                            try {
-                                                                socketAccept.close();
-                                                                return;
-                                                            } catch (Exception e3) {
-                                                                return;
-                                                            }
-                                                        }
-                                                        HttpResult httpResultHttp = MainActivity.http("POST", "https://oauth2.googleapis.com/token", "code=" + MainActivity.enc(uri.getQueryParameter("code")) + "&client_id=" + MainActivity.enc(string) + (string2.isEmpty() ? "" : "&client_secret=" + MainActivity.enc(string2)) + "&redirect_uri=" + MainActivity.enc(str) + "&grant_type=authorization_code&code_verifier=" + MainActivity.enc(strRandomToken), null);
-                                                        try {
-                                                            jSONObject = new JSONObject(httpResultHttp.body);
-                                                        } catch (Exception e4) {
-                                                            jSONObject = new JSONObject();
-                                                        }
-                                                        if (httpResultHttp.code == 200 && jSONObject.has("access_token")) {
-                                                            MainActivity.this.saveTokens(jSONObject);
-                                                            MainActivity.this.fetchAccountInfo();
-                                                            MainActivity.this.respondDone(socketAccept, true, MainActivity.this.prefs.getString("ytAccountName", "YouTube") + " 계정으로 로그인했어요.");
-                                                            MainActivity.this.closeLoopback();
-                                                            JSONObject jSONObjectAccountJson = MainActivity.this.accountJson();
-                                                            jSONObjectAccountJson.put("state", "done");
-                                                            MainActivity.this.authEvent(jSONObjectAccountJson);
-                                                            MainActivity.this.bringToFront();
-                                                        } else {
-                                                            String strDescribeOAuthError = MainActivity.describeOAuthError(jSONObject);
-                                                            MainActivity.this.respondDone(socketAccept, false, strDescribeOAuthError);
-                                                            MainActivity.this.closeLoopback();
-                                                            MainActivity.this.authError(strDescribeOAuthError);
-                                                        }
-                                                        try {
-                                                            socketAccept.close();
-                                                            return;
-                                                        } catch (Exception e5) {
-                                                            return;
-                                                        }
-                                                    }
-                                                    MainActivity.respond(socketAccept, 400, "보안 확인(state)에 실패했어요. 앱에서 다시 로그인해 주세요.");
-                                                    try {
-                                                        socketAccept.close();
-                                                    } catch (Exception e6) {
-                                                    }
-                                                }
-                                            }
-                                        } catch (IOException e7) {
-                                            if (MainActivity.this.loopbackServer != serverSocket) {
-                                                try {
-                                                    socketAccept.close();
-                                                    return;
-                                                } catch (Exception e8) {
-                                                    return;
-                                                }
-                                            }
-                                            try {
-                                                socketAccept.close();
-                                            } catch (Exception e9) {
-                                            }
-                                        }
-                                    } catch (Throwable th) {
-                                        try {
-                                            socketAccept.close();
-                                        } catch (Exception e10) {
-                                        }
-                                        MainActivity.this.authError("크롬 로그인 인증에 실패했습니다. 다시 시도해 주세요.");
-                                        return;
-                                    }
-                                } catch (Exception e11) {
-                                    return;
-                                }
-                            } catch (Exception e12) {
-                                MainActivity.this.closeLoopback();
-                                MainActivity.this.authError("Chrome 인증을 완료하지 못했어요. 다시 시도해 주세요.");
-                                return;
-                            }
-                        }
-                    }
-                }).start();
-                try {
-                    JSONObject jSONObject = new JSONObject();
-                    jSONObject.put("state", "browser");
-                    jSONObject.put("chrome", isChromeInstalled());
-                    authEvent(jSONObject);
-                } catch (Exception e) {
-                }
-                this.lastAuthUrl = str2;
-                openInChrome(str2);
-            } catch (Exception e2) {
-                closeLoopback();
-                authError("로그인 준비에 실패했어요.");
-            }
-        } catch (Exception e3) {
-            authError("로그인 준비에 실패했어요: " + e3.getMessage());
-        }
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public static void respond(Socket socket, int i, String str) throws Exception {
-        byte[] bytes = ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><p style='font:16px sans-serif;padding:24px'>" + str + "</p>").getBytes("UTF-8");
-        String str2 = "HTTP/1.1 " + i + " OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + bytes.length + "\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n";
-        OutputStream outputStream = socket.getOutputStream();
-        outputStream.write(str2.getBytes("US-ASCII"));
-        outputStream.write(bytes);
-        outputStream.flush();
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void respondDone(Socket socket, boolean z, String str) throws Exception {
-        String str2 = "intent://auth#Intent;scheme=pulseplayer;package=" + getPackageName() + ";end";
-        byte[] bytes = ("<!doctype html><html lang=ko><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Pulse Player</title><body style='margin:0;background:#0b0d15;color:#f2eaff;font-family:sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center'><div style='padding:28px'><div style='font-size:46px'>" + (z ? "✅" : "⚠️") + "</div><h2 style='margin:14px 0 8px'>" + (z ? "로그인 완료" : "로그인 실패") + "</h2><p style='color:#b9aecb;line-height:1.6'>" + Html.escapeHtml(str) + "</p><a href='" + str2 + "' style='display:inline-block;margin-top:14px;padding:13px 22px;border-radius:12px;background:#d4acfc;color:#25152b;font-weight:800;text-decoration:none'>Pulse Player로 돌아가기</a></div><script>setTimeout(function(){location.href=" + JSONObject.quote(str2) + "},600)</script></body></html>").getBytes("UTF-8");
-        String str3 = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + bytes.length + "\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n";
-        OutputStream outputStream = socket.getOutputStream();
-        outputStream.write(str3.getBytes("US-ASCII"));
-        outputStream.write(bytes);
-        outputStream.flush();
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void bringToFront() {
-        runOnUiThread(new Runnable() { // from class: com.pulse.player.MainActivity.27
-            @Override // java.lang.Runnable
-            public void run() {
-                try {
-                    MainActivity.this.startActivity(new Intent(MainActivity.this, (Class<?>) MainActivity.class).addFlags(603979776));
-                } catch (Exception e) {
-                }
-            }
-        });
-    }
-
-    @Override // android.app.Activity
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        Uri data = intent == null ? null : intent.getData();
-        if (data != null && "pulseplayer".equals(data.getScheme())) {
-            js("window.onYtReturn && window.onYtReturn();");
-        }
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void saveTokens(JSONObject jSONObject) {
-        SharedPreferences.Editor editorEdit = this.prefs.edit();
-        editorEdit.putString("ytAccess", jSONObject.optString("access_token"));
-        editorEdit.putLong("ytExpiry", System.currentTimeMillis() + (jSONObject.optLong("expires_in", 3600L) * 1000));
-        String strOptString = jSONObject.optString("refresh_token", "");
-        if (!strOptString.isEmpty()) {
-            editorEdit.putString("ytRefresh", strOptString);
-        }
-        editorEdit.apply();
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void fetchAccountInfo() throws Throwable {
-        String strAccessToken = accessToken();
-        if (strAccessToken != null) {
-            HttpResult httpResultHttp = http("GET", "https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails&mine=true", null, strAccessToken);
-            String strOptString = "YouTube 계정";
-            String strOptString2 = "";
-            String strOptString3 = "LL";
-            try {
-                JSONArray jSONArrayOptJSONArray = new JSONObject(httpResultHttp.body).optJSONArray("items");
-                if (jSONArrayOptJSONArray != null && jSONArrayOptJSONArray.length() > 0) {
-                    JSONObject jSONObject = jSONArrayOptJSONArray.getJSONObject(0);
-                    JSONObject jSONObjectOptJSONObject = jSONObject.optJSONObject("snippet");
-                    if (jSONObjectOptJSONObject != null) {
-                        strOptString = jSONObjectOptJSONObject.optString("title", "YouTube 계정");
-                        JSONObject jSONObjectOptJSONObject2 = jSONObjectOptJSONObject.optJSONObject("thumbnails");
-                        JSONObject jSONObjectOptJSONObject3 = jSONObjectOptJSONObject2 == null ? null : jSONObjectOptJSONObject2.optJSONObject("default");
-                        if (jSONObjectOptJSONObject3 != null) {
-                            strOptString2 = jSONObjectOptJSONObject3.optString("url", "");
-                        }
-                    }
-                    JSONObject jSONObjectOptJSONObject4 = jSONObject.optJSONObject("contentDetails");
-                    JSONObject jSONObjectOptJSONObject5 = jSONObjectOptJSONObject4 != null ? jSONObjectOptJSONObject4.optJSONObject("relatedPlaylists") : null;
-                    if (jSONObjectOptJSONObject5 != null) {
-                        strOptString3 = jSONObjectOptJSONObject5.optString("likes", "LL");
-                    }
-                }
-            } catch (Exception e) {
-            }
-            this.prefs.edit().putString("ytAccountName", strOptString).putString("ytAccountThumb", strOptString2).putString("ytLikes", strOptString3).apply();
-        }
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public String accessToken() {
-        String strAccessTokenLocked;
-        synchronized (this.tokenLock) {
-            strAccessTokenLocked = accessTokenLocked();
-        }
-        return strAccessTokenLocked;
-    }
-
-    private String accessTokenLocked() {
-        String string = this.prefs.getString("ytAccess", "");
-        long j = this.prefs.getLong("ytExpiry", 0L);
-        if (string.isEmpty() || j - 60000 <= System.currentTimeMillis()) {
-            String string2 = this.prefs.getString("ytRefresh", "");
-            if (string2.isEmpty()) {
-                return null;
-            }
-            HttpResult httpResultHttp = http("POST", "https://oauth2.googleapis.com/token", "client_id=" + enc(this.prefs.getString("ytClientId", "")) + (this.prefs.getString("ytClientSecret", "").isEmpty() ? "" : "&client_secret=" + enc(this.prefs.getString("ytClientSecret", ""))) + "&refresh_token=" + enc(string2) + "&grant_type=refresh_token", null);
-            try {
-                JSONObject jSONObject = new JSONObject(httpResultHttp.body);
-                if (httpResultHttp.code == 200 && jSONObject.has("access_token")) {
-                    saveTokens(jSONObject);
-                    return jSONObject.optString("access_token");
-                }
-                if ("invalid_grant".equals(jSONObject.optString("error"))) {
-                    clearTokens();
-                    JSONObject jSONObjectAccountJson = accountJson();
-                    jSONObjectAccountJson.put("state", "expired");
-                    authEvent(jSONObjectAccountJson);
-                }
-                return null;
-            } catch (Exception e) {
-                return null;
-            }
-        } else {
-            return string;
-        }
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void clearTokens() {
-        this.prefs.edit().remove("ytAccess").remove("ytRefresh").remove("ytExpiry").remove("ytAccountName").remove("ytAccountThumb").remove("ytLikes").apply();
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void ytApiCall(final String str, final String str2) {
-        this.apiExecutor.execute(new Runnable() { // from class: com.pulse.player.MainActivity.28
-            @Override // java.lang.Runnable
-            public void run() {
-                String str3;
-                String string;
-                boolean z = false;
-                if (str != null && !str.startsWith("/") && !str.contains("://") && !str.contains("..")) {
-                    String strAccessToken = MainActivity.this.accessToken();
-                    if (strAccessToken != null) {
-                        HttpResult httpResultHttp = MainActivity.http("GET", "https://www.googleapis.com/youtube/v3/" + str, null, strAccessToken);
-                        if (httpResultHttp.code == 401) {
-                            MainActivity.this.prefs.edit().putLong("ytExpiry", 0L).apply();
-                            String strAccessToken2 = MainActivity.this.accessToken();
-                            if (strAccessToken2 != null) {
-                                httpResultHttp = MainActivity.http("GET", "https://www.googleapis.com/youtube/v3/" + str, null, strAccessToken2);
-                            }
-                        }
-                        z = httpResultHttp.code == 200;
-                        str3 = httpResultHttp.body.isEmpty() ? "{}" : httpResultHttp.body;
-                    } else {
-                        str3 = "{\"error\":{\"message\":\"로그인이 필요해요.\",\"code\":401}}";
-                    }
-                } else {
-                    str3 = "{\"error\":{\"message\":\"bad path\"}}";
-                }
-                try {
-                    string = new JSONObject(str3).toString();
-                } catch (Exception e) {
-                    string = "{\"error\":{\"message\":\"invalid response\"}}";
-                }
-                MainActivity.this.jsOnUi("window.onYtApi && window.onYtApi(" + JSONObject.quote(str2) + "," + z + "," + string + ");");
-            }
-        });
-    }
-
-    @Override // com.pulse.player.YouTubePlaybackService.Listener
-    public void onYouTubeCommand(String str) {
-        js("window.onYtCommand && window.onYtCommand(" + JSONObject.quote(str) + ");");
-    }
-
-    /* JADX INFO: Access modifiers changed from: private */
-    public void updateYouTubeService(boolean z, boolean z2, String str, String str2, String str3, long j, long j2) {
-        this.ytActive = z;
-        this.webView.keepAlive = z && this.backgroundPlay;
-        if (this.backgroundPlay || YouTubePlaybackService.instance != null) {
-            Intent intentPutExtra = new Intent(this, (Class<?>) YouTubePlaybackService.class).setAction(YouTubePlaybackService.ACT_UPDATE).putExtra("active", z && this.backgroundPlay).putExtra("playing", z2).putExtra("title", str).putExtra("artist", str2).putExtra("thumb", str3).putExtra("position", j).putExtra("duration", j2);
-            try {
-                if (YouTubePlaybackService.instance != null) {
-                    startService(intentPutExtra);
-                } else if (z && this.backgroundPlay && z2) {
-                    startForegroundService(intentPutExtra);
-                }
-            } catch (Exception e) {
+            } catch (Exception noBrowser) {
+                Toast.makeText(this, "Chrome 또는 브라우저를 설치해 주세요.", Toast.LENGTH_LONG).show();
             }
         }
     }
@@ -2311,22 +1820,11 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
 
     @Override // android.app.Activity
     protected void onDestroy() {
-        if (YouTubePlaybackService.listener == this) {
-            YouTubePlaybackService.listener = null;
-        }
-        if (YouTubePlaybackService.instance != null) {
-            try {
-                startService(new Intent(this, (Class<?>) YouTubePlaybackService.class).setAction(YouTubePlaybackService.ACT_UPDATE).putExtra("active", false));
-            } catch (Exception e) {
-            }
-        }
         if (this.videoActive) {
             this.videoView.stopPlayback();
         }
-        closeLoopback();
         this.metadataExecutor.shutdown();
         this.netExecutor.shutdown();
-        this.apiExecutor.shutdown();
         if (this.browserView != null) {
             this.browserView.destroy();
             this.browserView = null;
@@ -2368,7 +1866,7 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
                 jSONObject.put("speed", MainActivity.this.prefs.getFloat("speed", 1.0f));
                 jSONObject.put("lastScan", MainActivity.this.prefs.getLong("lastScan", 0L));
                 jSONObject.put("hiddenCount", MainActivity.this.readHidden().size());
-                jSONObject.put("version", "1.3.3");
+                jSONObject.put("version", "1.3.4");
             } catch (Exception e) {
             }
             return jSONObject.toString();
@@ -2620,103 +2118,10 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
         }
 
         @JavascriptInterface
-        public void ytState(final boolean z, final boolean z2, final String str, final String str2, final String str3, final double d, final double d2) {
-            MainActivity.this.runOnUiThread(new Runnable() { // from class: com.pulse.player.MainActivity.PlayerBridge.19
-                @Override // java.lang.Runnable
-                public void run() {
-                    MainActivity.this.updateYouTubeService(z, z2, str, str2, str3, (long) d, (long) d2);
-                }
+        public void openChrome(final String url) {
+            MainActivity.this.runOnUiThread(new Runnable() {
+                @Override public void run() { MainActivity.this.openInChrome(url); }
             });
-        }
-
-        @JavascriptInterface
-        public void setBackgroundPlay(final boolean z) {
-            MainActivity.this.runOnUiThread(new Runnable() { // from class: com.pulse.player.MainActivity.PlayerBridge.20
-                @Override // java.lang.Runnable
-                public void run() {
-                    MainActivity.this.backgroundPlay = z;
-                    MainActivity.this.prefs.edit().putBoolean("ytBackground", z).apply();
-                    MainActivity.this.webView.keepAlive = MainActivity.this.ytActive && z;
-                    if (!z && YouTubePlaybackService.instance != null) {
-                        MainActivity.this.startService(new Intent(MainActivity.this, (Class<?>) YouTubePlaybackService.class).setAction(YouTubePlaybackService.ACT_UPDATE).putExtra("active", false));
-                    }
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public boolean getBackgroundPlay() {
-            return MainActivity.this.backgroundPlay;
-        }
-
-        @JavascriptInterface
-        public String getYtAccount() {
-            JSONObject jSONObjectAccountJson = MainActivity.this.accountJson();
-            try {
-                jSONObjectAccountJson.put("likes", MainActivity.this.prefs.getString("ytLikes", "LL"));
-            } catch (Exception e) {
-            }
-            return jSONObjectAccountJson.toString();
-        }
-
-        @JavascriptInterface
-        public void setYtClient(String str, String str2) {
-            String strTrim = str == null ? "" : str.trim();
-            String strTrim2 = str2 == null ? "" : str2.trim();
-            boolean z = !strTrim.equals(MainActivity.this.prefs.getString("ytClientId", ""));
-            MainActivity.this.prefs.edit().putString("ytClientId", strTrim).putString("ytClientSecret", strTrim2).putString("ytClientType", "desktop").apply();
-            if (z) {
-                MainActivity.this.clearTokens();
-            }
-        }
-
-        @JavascriptInterface
-        public void ytSignIn() {
-            MainActivity.this.runOnUiThread(new Runnable() { // from class: com.pulse.player.MainActivity.PlayerBridge.21
-                @Override // java.lang.Runnable
-                public void run() {
-                    MainActivity.this.startChromeSignIn();
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public void ytReopenBrowser() {
-            MainActivity.this.runOnUiThread(new Runnable() { // from class: com.pulse.player.MainActivity.PlayerBridge.22
-                @Override // java.lang.Runnable
-                public void run() {
-                    if (MainActivity.this.loopbackServer == null || MainActivity.this.lastAuthUrl.isEmpty()) {
-                        MainActivity.this.startChromeSignIn();
-                    } else {
-                        MainActivity.this.openInChrome(MainActivity.this.lastAuthUrl);
-                    }
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public void ytCancelSignIn() {
-            MainActivity.this.closeLoopback();
-
-        }
-
-        @JavascriptInterface
-        public void ytSignOut() {
-            final String string = MainActivity.this.prefs.getString("ytRefresh", "");
-            MainActivity.this.clearTokens();
-            if (!string.isEmpty()) {
-                MainActivity.this.netExecutor.execute(new Runnable() { // from class: com.pulse.player.MainActivity.PlayerBridge.23
-                    @Override // java.lang.Runnable
-                    public void run() {
-                        MainActivity.http("POST", "https://oauth2.googleapis.com/revoke", "token=" + MainActivity.enc(string), null);
-                    }
-                });
-            }
-        }
-
-        @JavascriptInterface
-        public void ytApi(String str, String str2) {
-            MainActivity.this.ytApiCall(str, str2);
         }
 
         @JavascriptInterface

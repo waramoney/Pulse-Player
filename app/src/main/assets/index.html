@@ -188,10 +188,9 @@
             <button type="button" id="ytOfficialDownload"><svg class="ico"><use href="#i-download"></use></svg> YouTube 앱에서 오프라인 저장</button>
             <button type="button" id="ytFileDownload"><svg class="ico"><use href="#i-folder"></use></svg> 내 파일 직접 다운로드</button>
             <button type="button" id="ytPaste"><svg class="ico"><use href="#i-paste"></use></svg> 복사한 링크 추가</button>
-            <button type="button" id="ytKey"><svg class="ico"><use href="#i-settings"></use></svg> 앱 내 검색 설정</button>
           </div>
           <div class="yt-results" id="ytResults"></div>
-          <p class="yt-note" id="ytNote">YouTube의 <b>♡ 즐겨찾기</b>와 플레이리스트를 관리할 수 있습니다. <b>오프라인 저장</b>은 공식 YouTube 앱에서 이용하며, Premium 가입 및 영상 제공 여부에 따라 사용할 수 있습니다. 직접 다운로드는 본인이 저장 권한을 가진 미디어 파일 주소에 한합니다.</p>
+          <p class="yt-note" id="ytNote">YouTube의 <b>♡ 즐겨찾기</b>와 플레이리스트는 앱에 저장됩니다. 검색·구글 로그인·재생은 Chrome을 사용하므로 앱에서 OAuth 클라이언트를 만들 필요가 없습니다. <b>오프라인 저장</b>은 공식 YouTube 앱에서 이용하며, Premium 가입 및 영상 제공 여부에 따라 사용할 수 있습니다. 직접 다운로드는 본인이 저장 권한을 가진 미디어 파일 주소에 한합니다.</p>
         </section>
         <div class="sort-row">
           <label class="sort-select"><svg class="ico"><use href="#i-sort"></use></svg>
@@ -207,18 +206,10 @@
 
 
         <div id="trackList" class="track-list" aria-live="polite"></div>
-        <div class="library-footer"><svg class="ico"><use href="#i-folder"></use></svg> 파일은 서버에 업로드되지 않아요. YouTube 영상은 YouTube 공식 플레이어로 재생됩니다.</div>
+        <div class="library-footer"><svg class="ico"><use href="#i-folder"></use></svg> 파일은 서버에 업로드되지 않아요. YouTube 영상은 Chrome에서 재생됩니다.</div>
       </section>
     </div>
     <footer class="site-footer"><span>Ⓟ PULSE PLAYER 1.3.3</span><span>PRIVATE • YOURS</span></footer>
-  </div>
-
-  <div id="ytDock" class="yt-dock" hidden>
-    <div class="yt-dock-bar">
-      <button type="button" id="ytDockExpand" aria-label="재생 화면 열기"><svg class="ico"><use href="#i-expand"></use></svg></button>
-      <button type="button" id="ytDockClose" aria-label="YouTube 재생 닫기"><svg class="ico"><use href="#i-close"></use></svg></button>
-    </div>
-    <div class="yt-frame-wrap"><div id="ytFrame"></div></div>
   </div>
 
   <div id="miniPlayer" class="mini-player" hidden>
@@ -241,7 +232,6 @@
       <div class="dialog-head"><h2 id="dialogTitle"></h2><button type="button" id="dialogClose" aria-label="닫기">✕</button></div>
       <p id="dialogHint" class="dialog-hint"></p>
       <input type="text" id="dialogName" class="dialog-input" maxlength="300" autocomplete="off" placeholder="플레이리스트 이름" hidden>
-      <input type="text" id="dialogSecret" class="dialog-input secret" maxlength="200" autocomplete="off" placeholder="클라이언트 보안 비밀 (GOCSPX-…)" hidden>
       <div id="dialogTools" class="dialog-tools" hidden></div>
       <textarea id="dialogLyrics" class="dialog-textarea" maxlength="30000" placeholder="가사를 직접 입력하거나 붙여넣으세요.&#10;[00:12.50] 시간 표시가 있는 LRC도 지원합니다." hidden></textarea>
       <input type="search" id="dialogSearch" class="dialog-input" placeholder="곡 검색" hidden>
