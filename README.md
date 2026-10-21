@@ -1,22 +1,27 @@
-# Pulse Player v1.3.4 — Chrome YouTube + local audio reliability
+# Pulse Player v1.3.5 — Android music and YouTube playback repair
 
-## Changes
-- YouTube links and search open directly in **Chrome** using the device's Chrome Google session. No YouTube/Google Data API key, OAuth client ID, or authorization-code entry is required.
-- YouTube playback occurs in Chrome, not inside Pulse Player's WebView or in an overlay; the old floating YouTube video dock and YouTube notification service have been removed.
-- Video bookmarks and named playlists remain saved on-device; YouTube subscriptions, account likes and Chrome cookies are **not** imported into Pulse Player. These account features remain accessible in Chrome only.
-- MP3/other on-device media remains playable in Pulse Player; audio access rights are checked separately from video rights, content URIs are opened via file descriptors and playback errors are reported to the user.
-- Authorized standalone MP4/MP3 HTTPS downloads remain supported; YouTube Premium offline downloads stay inside the official YouTube app.
-- The app does not block YouTube ads. If you have YouTube Premium, ad-free playback is governed by your Chrome/YouTube session and account eligibility.
+## Verified root cause and changes
+- **Critical music bug:** `MainActivity.findTrack()` searched the library but returned `null` unconditionally. Fixed to return the matching track, preventing "registered but won't play" for both local music and video.
+- Playback controls now issue `PLAY` for a tapped local library row rather than toggling a stale track ID, and the audio service no longer calls `MediaPlayer.start()` twice.
+- Local file access uses read-only persisted document URIs for imported music and `READ_MEDIA_AUDIO` for scanned device files. The app reports errors rather than silently failing.
+- Saved YouTube videos open an **official YouTube embedded iframe in Pulse Player** on demand; heart/playlist controls are in a separate accessible toolbar. Closing the viewer unloads the iframe and stops playback (no floating mini-player).
+- YouTube searching and browsing uses YouTube's normal mobile website inside the app, **without a paid YouTube Data API or OAuth client**. Its toolbar can save the selected URL to the library or toggle a heart. Chrome remains a separate login/fallback path; Chrome cookies cannot be accessed from an Android WebView.
+- YouTube official iframe playback includes a referring HTTPS app origin to meet player-identity requirements. Some videos restrict embedding, require age verification, or block autoplay. For those, use **Chrome에서 재생**.
+- Existing playlists, lyrics, favorites, local media and authorized direct-file downloads retain their storage keys.
+- No Firebase, realtime database or background internet polling was added. YouTube pages only load on user action.
 
-## User test checklist
-1. First back up playlists/lyrics in Settings. Updating may require reinstalling if debug signatures differ.
-2. Grant **Music and audio** permission on Android 13+ (Settings > Apps > Pulse Player > Permissions). Add a local MP3, then verify playback, pause and next-track controls; repeat with an imported audio file.
-3. YouTube tab > **Chrome에서 열기 / 로그인**; sign in directly in Chrome if necessary and play a video.
-4. Return to Pulse Player. No floating YouTube panel or YouTube mini player should remain.
-5. Save a YouTube URL via paste, set favorite, put it into a named playlist, and tap it to open the exact video in Chrome.
+## Tests
+- `node --check app/src/main/assets/app.js`
+- `node tests/contract.cjs`
+- `python tests/browser_integration.py` (where Playwright Chromium is available)
+- GitHub Actions Android 35 + Java 17 APK build.
 
-## Limitations
-YouTube cannot be reliably embedded in an app with a Chrome login cookie via WebView: Android WebView and Chrome have separate cookies. Embedded player errors, including error 153 and uploader restrictions, cannot be circumvented by a separate login. Direct Chrome playback avoids the embed/player limitations, but does not grant Pulse Player access to Google account data.
+## Real Android device acceptance checks
+1. Back up playlist/lyrics before replacing an APK signed with a different debug key.
+2. Tap a local MP3 in the library and verify its playback state and audible sound; then test imported MP3 and a second format such as M4A.
+3. YouTube → paste or enter a valid YouTube URL → verify the official inline player appears, tap play if autoplay is blocked. Check heart, playlist and close; confirm no floating player remains.
+4. Browse/search YouTube in app; when a video URL is selected tap the browser toolbar ♡ to save. Chrome button signs into Google separately.
+5. For YouTube 153 or unembeddable errors, use Chrome fallback; this version does not bypass restrictions or remove ads.
 
-## Build
-GitHub Actions: `Build Pulse Player APK`. Package ID: `com.pulse.player`, version `1.3.4`.
+## Privacy
+The app never collects or stores Google credentials. All playlist, lyric and favorite data remains local. YouTube iframe playback is governed by YouTube policies and network conditions.

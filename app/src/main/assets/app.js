@@ -37,7 +37,7 @@
   let permissionGranted = false;
   let lastScanAt = 0;
   let hiddenCount = 0;
-  let appVersion = '1.3.4';
+  let appVersion = '1.3.5';
 
   const storage = {
     get(key) { try { return localStorage.getItem(key); } catch (_) { return null; } },
@@ -568,6 +568,7 @@
     if (native) window.Android.toggleFavorite(id);
     else persistBrowserYouTube();
     renderLibrary(); renderNow();
+    if (inlineYouTubeId) updateInlineFavorite();
     if (ytView && activeFilter === 'youtube') renderYtResults();
     toast(willFavorite ? '즐겨찾기에 추가했어요. 앱을 다시 열어도 유지돼요.' : '즐겨찾기에서 뺐어요.');
   }
@@ -1077,7 +1078,7 @@
     const yt = isYT(item);
     el('currentTitle').textContent = item ? item.name : '음악을 추가해 보세요';
     el('currentArtist').textContent = item ? item.artist || '내 기기 · 오프라인' : '라이브러리에서 곡을 선택하세요';
-    el('trackEyebrow').textContent = item ? (yt ? 'OPEN IN CHROME · YOUTUBE' : item.type === 'video' ? 'NOW WATCHING · VIDEO' : 'NOW PLAYING · AUDIO') : 'READY TO PLAY';
+    el('trackEyebrow').textContent = item ? (yt ? 'YOUTUBE · APP PLAYER' : item.type === 'video' ? 'NOW WATCHING · VIDEO' : 'NOW PLAYING · AUDIO') : 'READY TO PLAY';
     el('sourceLabel').textContent = yt ? '● YOUTUBE · ONLINE' : '● 100% OFFLINE';
     el('sourceLabel').classList.toggle('online', yt);
     const fav = el('favoriteCurrent');
@@ -1089,7 +1090,7 @@
     document.querySelector('.vinyl-sticker use').setAttribute('href', yt ? '#i-youtube' : item?.type === 'video' ? '#i-video' : '#i-music');
     el('artworkTabLabel').textContent = yt ? '영상' : item?.type === 'video' ? '영상' : '음악';
     el('visualCaption').textContent = yt ? 'YOUTUBE' : item?.type === 'video' ? 'VIDEO COLLECTION' : 'YOUR MUSIC, YOUR MOMENT';
-    el('footerHint').textContent = yt ? 'YouTube · Chrome에서 재생 · 앱 내 플레이어는 사용하지 않음'
+    el('footerHint').textContent = yt ? 'YouTube · 앱 내 재생 · 삽입 제한 영상은 Chrome으로 열기'
       : item?.type === 'video' ? (native ? '전체 화면으로 영상 재생' : '화면에서 영상 재생')
       : (collections.queueId && queueList() ? `${queueList().name} · 화면 꺼짐 재생` : native ? '화면을 꺼도 음악은 계속' : '내 기기에서 직접 재생');
     el('togglePlayback').setAttribute('aria-label', playing ? '일시정지' : '재생');
@@ -1155,12 +1156,49 @@
     browserElement = null;
   }
 
-  // ---------------------------------------------------------------- YouTube: external Chrome playback only
-  // The browser owns account cookies and video playback. Pulse Player neither
-  // signs into Google directly nor proxies, extracts or embeds video streams.
+  // ---------------------------------------------------------------- YouTube: official on-demand in-app IFrame
+  // No Data API key, OAuth client, stream extraction or ad manipulation is used.
+  // Chrome login cookies stay private to Chrome and are not copied to WebView.
+  let inlineYouTubeId = '';
   function ytStop() {
+    const overlay = el('ytInlinePlayer');
+    if (overlay && !overlay.hidden) {
+      overlay.hidden = true;
+      el('ytInlineFrame').removeAttribute('src'); // unload stops playback, not just hides it
+      document.body.classList.remove('yt-inline-open');
+    }
+    inlineYouTubeId = '';
     playing = false;
     preparing = false;
+  }
+
+  function updateInlineFavorite() {
+    const item = track(`yt:${inlineYouTubeId}`);
+    const control = el('ytInlineFavorite');
+    if (!control) return;
+    control.textContent = item?.favorite ? '♥' : '♡';
+    control.classList.toggle('on', !!item?.favorite);
+    control.setAttribute('aria-label', item?.favorite ? 'YouTube 즐겨찾기 해제' : 'YouTube 즐겨찾기 추가');
+  }
+
+  function openInlineYouTube(item) {
+    const videoId = ytIdFrom(item?.videoId || item?.id.slice(3));
+    if (!videoId) { toast('영상 주소가 올바르지 않습니다.'); return; }
+    ytStop();
+    inlineYouTubeId = videoId;
+    const panel = el('ytInlinePlayer');
+    const frame = el('ytInlineFrame');
+    el('ytInlineTitle').textContent = item.name || 'YouTube 영상';
+    updateInlineFavorite();
+    panel.hidden = false;
+    document.body.classList.add('yt-inline-open');
+    el('miniPlayer').hidden = true;
+    // A document loaded from appassets.androidplatform.net sends the HTTP
+    // Referer that YouTube now requires (error 153 otherwise). The origin
+    // parameter names the embedding origin, NOT a Google Cloud OAuth ID.
+    const origin = 'https://appassets.androidplatform.net';
+    frame.src = `https://www.youtube.com/embed/${videoId}?playsinline=1&autoplay=1&enablejsapi=1&origin=${encodeURIComponent(origin)}&rel=0`;
+    el('ytInlineClose').focus();
   }
 
   function openChromeYouTube(url) {
@@ -1171,6 +1209,7 @@
     preparing = false;
     const mini = el('miniPlayer');
     if (mini) mini.hidden = true;
+    ytStop();
     if (native && has('openChrome')) window.Android.openChrome(url);
     else if (has('openExternal')) window.Android.openExternal(url);
     else window.open(url, '_blank', 'noopener,noreferrer');
@@ -1183,16 +1222,21 @@
     position = 0;
     duration = item.duration || 0;
     renderNow();
-    const videoId = ytIdFrom(item.videoId || item.id.slice(3));
-    if (videoId) openChromeYouTube(`https://www.youtube.com/watch?v=${videoId}`);
-    else toast('영상 주소가 유효하지 않습니다.');
+    openInlineYouTube(item);
   }
 
   function openYouTubePage(videoId) {
+    const id = ytIdFrom(videoId);
+    if (id) {
+      const saved = track(`yt:${id}`);
+      if (saved) { playItem(saved.id, true); return; }
+      addYouTube(id, true);
+      return;
+    }
     ytStop();
     renderNow();
-    const id = ytIdFrom(videoId);
-    openChromeYouTube(id ? `https://www.youtube.com/watch?v=${id}` : 'https://www.youtube.com/');
+    if (native && has('openBrowser')) window.Android.openBrowser('https://www.youtube.com/', 'youtube');
+    else openChromeYouTube('https://www.youtube.com/');
   }
 
   function openExternal(url) {
@@ -1297,9 +1341,9 @@
     const heading = document.createElement('strong');
     heading.textContent = 'Chrome에서 YouTube 사용';
     const hint = document.createElement('small');
-    hint.textContent = '구글 로그인은 Chrome에서 합니다. 앱에는 API 키·클라이언트 ID·인증코드를 입력하지 않습니다.';
+    hint.textContent = '앱에서 YouTube 영상 재생·즐겨찾기 가능. 계정 로그인은 Chrome에서 합니다. API 키나 클라이언트 ID는 필요 없습니다.';
     text.append(heading, hint);
-    panel.append(text, button('Chrome에서 열기 / 로그인', 'yt-login', () => openYouTubePage(''), 'external'));
+    panel.append(text, button('Chrome에서 열기 / 로그인', 'yt-login', () => openChromeYouTube('https://www.youtube.com/'), 'external'));
   }
 
   function ytSearch(query) {
@@ -1311,8 +1355,10 @@
       el('ytQuery').value = '';
       return;
     }
-    // Official YouTube search is rendered by Chrome without API quota.
-    openChromeYouTube(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`);
+    // No paid Data API is needed: the ordinary YouTube search page is browsed in-app.
+    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
+    if (native && has('openBrowser')) window.Android.openBrowser(url, 'youtube');
+    else openChromeYouTube(url);
   }
 
   function renderYtResults() {
@@ -1322,7 +1368,7 @@
     renderYtAccount();
     const hint = document.createElement('p');
     hint.className = 'yt-loading';
-    hint.textContent = 'Chrome에서 원하는 영상을 검색·재생하고 “공유 → 링크 복사” 후 이 앱에 붙여넣어 즐겨찾기나 플레이리스트에 저장할 수 있습니다.';
+    hint.textContent = '이 화면에서 링크를 넣으면 앱 안에서 재생됩니다. 검색은 앱의 YouTube 브라우저에서 할 수 있고, 영상 페이지의 ♡ 버튼으로 즐겨찾기할 수 있습니다.';
     box.appendChild(hint);
   }
 
@@ -1344,8 +1390,8 @@
     } else if (native) {
       playing = false;
       preparing = true;
-      if (same) window.Android.toggle(id);
-      else window.Android.play(id);
+      // A click on a library row means PLAY, never a stale toggle of the last ID.
+      window.Android.play(id);
       renderAll();
     } else if (same && browserElement) {
       if (browserElement.paused) browserElement.play().catch(() => toast('재생할 수 없습니다.'));
@@ -1461,6 +1507,7 @@
     }
     // Note: playlists keep references to items that are temporarily missing (e.g. storage permission revoked)
     renderAll();
+    if (inlineYouTubeId) updateInlineFavorite();
     if (activeFilter === 'youtube') renderYtResults();
   }
 
@@ -1490,6 +1537,7 @@
     position = Number(incoming.position) || 0;
     duration = Number(incoming.duration) || current()?.duration || 0;
     if (incoming.error && incoming.error !== lastError) { lastError = incoming.error; toast(incoming.error); }
+    else if (!incoming.error && (incoming.playing || incoming.preparing)) lastError = '';
     if (changed || wasPlaying !== playing) renderLibrary();
     renderNow();
   };
@@ -1500,6 +1548,7 @@
   document.addEventListener('visibilitychange', () => window.onAppVisibility(document.visibilityState === 'visible'));
 
   window.onBackRequest = () => {
+    if (!el('ytInlinePlayer').hidden) { ytStop(); renderNow(); return true; }
     if (!el('dialogBackdrop').hidden) { closeModal(); return true; }
     if (reorderMode) { reorderMode = false; renderPlaylists(); renderLibrary(); return true; }
     if (view !== 'library') { navigate('library'); return true; }
@@ -1649,6 +1698,19 @@
     el('miniNext').addEventListener('click', () => nextPrevious(1));
     el('ytForm').addEventListener('submit', e => { e.preventDefault(); ytSearch(el('ytQuery').value); });
     el('ytBrowse').addEventListener('click', () => openYouTubePage(''));
+    el('ytInlineClose').addEventListener('click', () => { ytStop(); renderNow(); });
+    el('ytInlineFavorite').addEventListener('click', () => {
+      const id = `yt:${inlineYouTubeId}`;
+      if (track(id)) { toggleFavorite(id); updateInlineFavorite(); }
+    });
+    el('ytInlinePlaylist').addEventListener('click', () => {
+      const id = `yt:${inlineYouTubeId}`;
+      if (track(id)) addToPlaylist(id);
+    });
+    el('ytInlineChrome').addEventListener('click', () => {
+      if (inlineYouTubeId) openChromeYouTube(`https://www.youtube.com/watch?v=${inlineYouTubeId}`);
+    });
+
     el('ytOfficialDownload').addEventListener('click', () => openYouTubeOffline(isYT(current()) ? current().videoId : ''));
     el('ytFileDownload').addEventListener('click', directMediaDownloadDialog);
     el('ytPaste').addEventListener('click', () => readClipboard().then(text => {

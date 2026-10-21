@@ -407,8 +407,14 @@ public final class AudioPlaybackService extends Service implements AudioManager.
             return;
         }
         if (this.prepared && this.player != null && !isPlaying()) {
-            this.player.start();
-            applySpeed();
+            try {
+                this.player.start();
+                applySpeed();
+                this.playbackError = "";
+            } catch (IllegalStateException e) {
+                this.playbackError = "일시정지된 파일을 다시 시작하지 못했습니다. 다시 선택해 주세요.";
+                releasePlayer();
+            }
         }
         refresh();
     }

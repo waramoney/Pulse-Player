@@ -46,7 +46,7 @@ jobs:
           gradle-version: '8.9'
       - name: Validate JavaScript
         run: node --check app/src/main/assets/app.js
-      - name: Verify navigation, Chrome-only YouTube and audio contracts
+      - name: Verify audio playback and in-app YouTube contracts
         run: node tests/contract.cjs
       - name: Compile debug APK
         run: gradle --no-daemon :app:assembleDebug

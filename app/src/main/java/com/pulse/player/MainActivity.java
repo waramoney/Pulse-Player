@@ -428,21 +428,24 @@ public final class MainActivity extends Activity {
         return arrayList;
     }
 
-    private JSONObject findTrack(String str) {
-        JSONObject jSONObjectOptJSONObject;
+    // A recovered-code regression used to return null for every song and video,
+    // so library entries could be listed but no PLAY action ever reached MediaPlayer.
+    private JSONObject findTrack(String id) {
+        if (id == null || id.isEmpty()) return null;
         synchronized (this.libraryLock) {
             try {
-                JSONArray jSONArray = new JSONArray(readLibrary());
-                for (int i = 0; i < jSONArray.length(); i++) {
-                    jSONObjectOptJSONObject = jSONArray.optJSONObject(i);
-                    if (jSONObjectOptJSONObject == null || !str.equals(jSONObjectOptJSONObject.optString("id"))) {
+                JSONArray library = new JSONArray(readLibrary());
+                for (int i = 0; i < library.length(); i++) {
+                    JSONObject item = library.optJSONObject(i);
+                    if (item != null && id.equals(item.optString("id"))) {
+                        return item;
                     }
                 }
-            } catch (Exception e) {
+            } catch (Exception ignored) {
+                // A corrupted library should not crash the player.
             }
-            jSONObjectOptJSONObject = null;
         }
-        return jSONObjectOptJSONObject;
+        return null;
     }
 
     /* JADX INFO: Access modifiers changed from: private */
@@ -1139,7 +1142,9 @@ public final class MainActivity extends Activity {
     public void play(String str, boolean z) {
         JSONObject jSONObjectFindTrack = findTrack(str);
         if (jSONObjectFindTrack == null) {
-            Toast.makeText(this, "파일을 찾을 수 없습니다. 다시 추가해 주세요.", 0).show();
+            String error = "선택한 음악·영상이 라이브러리에서 확인되지 않습니다. 다시 추가해 주세요.";
+            Toast.makeText(this, error, Toast.LENGTH_LONG).show();
+            js("window.onNativePlaybackFailure && window.onNativePlaybackFailure(" + JSONObject.quote(error) + ");");
             return;
         }
         String strOptString = jSONObjectFindTrack.optString("type");
@@ -1350,7 +1355,7 @@ public final class MainActivity extends Activity {
             settings.setDomStorageEnabled(true);
             settings.setAllowFileAccess(false);
             settings.setAllowContentAccess(false);
-            settings.setMediaPlaybackRequiresUserGesture(true);
+            settings.setMediaPlaybackRequiresUserGesture(false);
             settings.setLoadWithOverviewMode(true);
             settings.setUseWideViewPort(true);
             try {
@@ -1364,9 +1369,10 @@ public final class MainActivity extends Activity {
                     if (string.startsWith("http://") || string.startsWith("https://")) {
                         Uri target = Uri.parse(string);
                         String host = target.getHost() == null ? "" : target.getHost().toLowerCase(Locale.ROOT);
-                        if (host.equals("youtube.com") || host.endsWith(".youtube.com") ||
-                            host.equals("youtu.be") || host.equals("accounts.google.com")) {
-                            MainActivity.this.closeBrowser();
+                        // Browsing and playback are allowed in the app's YouTube WebView.
+                        // Google account authentication must stay in Chrome: WebView
+                        // cannot read Chrome login cookies or perform unsupported OAuth.
+                        if (host.equals("accounts.google.com") || host.endsWith(".accounts.google.com")) {
                             MainActivity.this.openInChrome(string);
                             return true;
                         }
@@ -1866,7 +1872,7 @@ public final class MainActivity extends Activity {
                 jSONObject.put("speed", MainActivity.this.prefs.getFloat("speed", 1.0f));
                 jSONObject.put("lastScan", MainActivity.this.prefs.getLong("lastScan", 0L));
                 jSONObject.put("hiddenCount", MainActivity.this.readHidden().size());
-                jSONObject.put("version", "1.3.4");
+                jSONObject.put("version", "1.3.5");
             } catch (Exception e) {
             }
             return jSONObject.toString();

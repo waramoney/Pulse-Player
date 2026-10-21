@@ -184,13 +184,13 @@
             <button type="submit">검색</button>
           </form>
           <div class="yt-quick">
-            <button type="button" id="ytBrowse"><svg class="ico"><use href="#i-globe"></use></svg> YouTube 둘러보기</button>
+            <button type="button" id="ytBrowse"><svg class="ico"><use href="#i-globe"></use></svg> 앱에서 YouTube 둘러보기</button>
             <button type="button" id="ytOfficialDownload"><svg class="ico"><use href="#i-download"></use></svg> YouTube 앱에서 오프라인 저장</button>
             <button type="button" id="ytFileDownload"><svg class="ico"><use href="#i-folder"></use></svg> 내 파일 직접 다운로드</button>
             <button type="button" id="ytPaste"><svg class="ico"><use href="#i-paste"></use></svg> 복사한 링크 추가</button>
           </div>
           <div class="yt-results" id="ytResults"></div>
-          <p class="yt-note" id="ytNote">YouTube의 <b>♡ 즐겨찾기</b>와 플레이리스트는 앱에 저장됩니다. 검색·구글 로그인·재생은 Chrome을 사용하므로 앱에서 OAuth 클라이언트를 만들 필요가 없습니다. <b>오프라인 저장</b>은 공식 YouTube 앱에서 이용하며, Premium 가입 및 영상 제공 여부에 따라 사용할 수 있습니다. 직접 다운로드는 본인이 저장 권한을 가진 미디어 파일 주소에 한합니다.</p>
+          <p class="yt-note" id="ytNote">YouTube의 <b>♡ 즐겨찾기</b>와 플레이리스트는 앱에 저장됩니다. 검색·재생은 앱에서도 할 수 있고, 구글 로그인은 Chrome을 사용하므로 API 키나 OAuth 클라이언트가 필요하지 않습니다. <b>오프라인 저장</b>은 공식 YouTube 앱에서 이용하며, Premium 가입 및 영상 제공 여부에 따라 사용할 수 있습니다. 직접 다운로드는 본인이 저장 권한을 가진 미디어 파일 주소에 한합니다.</p>
         </section>
         <div class="sort-row">
           <label class="sort-select"><svg class="ico"><use href="#i-sort"></use></svg>
@@ -206,11 +206,29 @@
 
 
         <div id="trackList" class="track-list" aria-live="polite"></div>
-        <div class="library-footer"><svg class="ico"><use href="#i-folder"></use></svg> 파일은 서버에 업로드되지 않아요. YouTube 영상은 Chrome에서 재생됩니다.</div>
+        <div class="library-footer"><svg class="ico"><use href="#i-folder"></use></svg> 파일은 서버에 업로드되지 않아요. YouTube는 공식 임베디드 플레이어 또는 Chrome에서 재생됩니다.</div>
       </section>
     </div>
-    <footer class="site-footer"><span>Ⓟ PULSE PLAYER 1.3.3</span><span>PRIVATE • YOURS</span></footer>
+    <footer class="site-footer"><span>Ⓟ PULSE PLAYER 1.3.5</span><span>PRIVATE • YOURS</span></footer>
   </div>
+
+  <!-- Official YouTube embed: no Google Data API key or OAuth client is used. -->
+  <section id="ytInlinePlayer" class="yt-inline-player" hidden role="dialog" aria-modal="true" aria-label="YouTube 영상 재생">
+    <div class="yt-inline-header">
+      <button type="button" id="ytInlineClose" class="yt-inline-back" aria-label="영상 닫기">✕ 닫기</button>
+      <span id="ytInlineTitle" class="yt-inline-title">YouTube</span>
+      <button type="button" id="ytInlineFavorite" class="yt-inline-action" aria-label="즐겨찾기 추가">♡</button>
+    </div>
+    <div class="yt-inline-frame">
+      <iframe id="ytInlineFrame" title="YouTube 공식 영상 플레이어" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+        referrerpolicy="strict-origin-when-cross-origin" allowfullscreen playsinline loading="eager"></iframe>
+    </div>
+    <div class="yt-inline-tools">
+      <button type="button" id="ytInlinePlaylist">＋ 플레이리스트에 담기</button>
+      <button type="button" id="ytInlineChrome">Chrome에서 재생</button>
+    </div>
+    <p class="yt-inline-info">YouTube 공식 플레이어입니다. 재생이 제한된 영상은 Chrome에서 열어 주세요. 계정 로그인은 Chrome에서만 가능합니다.</p>
+  </section>
 
   <div id="miniPlayer" class="mini-player" hidden>
     <button id="miniInfo" type="button" class="mini-info" aria-label="재생 화면 열기">
