@@ -1946,9 +1946,9 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
                                 } catch (Exception e11) {
                                     return;
                                 }
-                            } catch (SocketTimeoutException e12) {
+                            } catch (Exception e12) {
                                 MainActivity.this.closeLoopback();
-                                MainActivity.this.authError("로그인 시간이 지났어요. 다시 시도해 주세요.");
+                                MainActivity.this.authError("Chrome 인증을 완료하지 못했어요. 다시 시도해 주세요.");
                                 return;
                             }
                         }
@@ -2098,7 +2098,6 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
         } else {
             return string;
         }
-        return null;
     }
 
     /* JADX INFO: Access modifiers changed from: private */
