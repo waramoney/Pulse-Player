@@ -18,7 +18,7 @@ setup_js=r'''(() => {
  window.Android={
   getLibrary:()=>JSON.stringify(audio),getCollections:()=>localStorage.getItem('test-collections')||'{"lists":[],"lyrics":{}}',
   saveCollections:x=>localStorage.setItem('test-collections',x),
-  getPreferences:()=>JSON.stringify({version:'1.3.6',lastId:'',shuffle:false,repeat:0,speed:1,lastScan:Date.now()}),
+  getPreferences:()=>JSON.stringify({version:'1.3.7',lastId:'',shuffle:false,repeat:0,speed:1,lastScan:Date.now()}),
   hasMediaPermission:()=>true,scanDevice:()=>{},requestState:()=>{},pauseAll:()=>window.calls.push(['pauseAll']),
   play:id=>window.calls.push(['play',id]),toggle:id=>window.calls.push(['toggle',id]),
   setOptions:()=>{},addYouTube:(id,title,author)=>{
@@ -31,7 +31,9 @@ setup_js=r'''(() => {
   deleteOriginal:id=>window.calls.push(['deleteOriginal',id]),
   openBrowser:(u,t)=>window.calls.push(['openBrowser',u,t]),
   openChrome:u=>window.calls.push(['chrome',u]),importFiles:()=>{},
-  downloadDirectMedia:()=>{},getClipboard:()=>''
+  downloadDirectMedia:()=>{},getClipboard:()=>'',
+  enterMiniPlayer:()=>window.calls.push(['pip']),
+  setYouTubeOverlayActive:active=>window.calls.push(['ytActive',active])
  };
  window.testLibrary=audio;
 })();'''.replace('{{LIBRARY}}',__import__('json').dumps(lib,ensure_ascii=False).replace('`','\\`'))
@@ -77,6 +79,13 @@ with sync_playwright() as playwright:
  page.locator('#ytInlineFavorite').click()
  assert page.locator('#ytInlineFavorite').inner_text() == '♥', 'inline favorite toggle failed'
  assert ['favorite','yt:dQw4w9WgXcQ',True] in page.evaluate('window.calls')
+ page.locator('#ytInlineSave').click()
+ assert '저장됨' in page.locator('#ytInlineSave').inner_text(), 'saving YouTube link must report saved item'
+ page.locator('#ytInlinePip').click()
+ assert ['pip'] in page.evaluate('window.calls'), 'PiP button must request Android small window'
+ page.evaluate('window.onPipChanged(true)')
+ assert page.locator('body').evaluate("e=>e.classList.contains('yt-pip')"), 'PiP styling not applied'
+ page.evaluate('window.onPipChanged(false)')
  page.locator('#ytInlinePlaylist').click()
  page.locator('#dialogName').fill('내 유튜브 재생목록')
  page.locator('#dialogConfirm').click()
@@ -85,14 +94,21 @@ with sync_playwright() as playwright:
  assert len(saved['lists'])==1 and saved['lists'][0]['tracks']==['yt:dQw4w9WgXcQ']
  page.locator('#ytInlineClose').click()
  assert page.locator('#ytInlinePlayer').is_hidden() and not page.locator('#ytInlineFrame').get_attribute('src'), 'close should unload video iframe'
- # In-app YouTube browsing and fallback Chrome button separate.
+ # In-app YouTube browsing and explicit in-app fallback are separate from Chrome login.
+ page.get_by_role('button',name='테스트 유튜브 영상 재생').click()
+ page.locator('#ytInlineAlternate').click()
+ assert any(x[0]=='openBrowser' and x[2]=='youtube-watch' and 'watch?v=dQw4w9WgXcQ' in x[1] for x in page.evaluate('window.calls')), 'alternate playback must stay in app'
+ assert not page.locator('#ytInlinePlayer').is_visible()
  page.locator('#ytQuery').fill('좋아하는 가수')
  page.locator('#ytForm button[type="submit"]').click()
  assert any(x[0]=='openBrowser' and 'search_query=' in x[1] for x in page.evaluate('window.calls')), 'search must browse in-app without Data API'
  page.get_by_role('button',name='테스트 유튜브 영상 재생').click()
- page.locator('#ytInlineChrome').click()
- assert any(x[0]=='chrome' and 'watch?v=dQw4w9WgXcQ' in x[1] for x in page.evaluate('window.calls'))
- assert page.locator('#ytInlinePlayer').is_hidden(), 'Chrome fallback must stop iframe'
+ assert not page.locator('#ytInlineChrome').count(), 'Chrome playback button must be absent'
+ assert not any(x[0]=='chrome' for x in page.evaluate('window.calls')), 'YouTube playback must never auto-launch Chrome'
+ page.locator('#ytInlineClose').click()
+ page.get_by_role('button', name='Chrome에서 열기 / 로그인').click()
+ assert any(x[0]=='chrome' and 'youtube.com' in x[1] for x in page.evaluate('window.calls')), 'Only the explicit Chrome login launches Chrome'
+ assert page.locator('#ytInlinePlayer').is_hidden(), 'Chrome login closes embedded video'
  assert not errors, 'Browser JavaScript errors: '+str(errors)
- print('PASS browser: audio PLAY, in-app YouTube iframe, favorite, named playlist, browser search, Chrome fallback, stop + mini-player hidden')
+ print('PASS browser: local audio, in-app YouTube embed and watch, PiP, save/favorite, playlist, Chrome opt-in, unload')
  browser.close()

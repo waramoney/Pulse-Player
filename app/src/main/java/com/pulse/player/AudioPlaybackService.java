@@ -19,6 +19,7 @@ import android.net.Uri;
 import android.os.Build;
 import java.io.IOException;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import java.util.ArrayList;
 import java.util.List;
@@ -277,6 +278,9 @@ public final class AudioPlaybackService extends Service implements AudioManager.
             this.audioManager.requestAudioFocus(this.focusRequest);
             this.player = new MediaPlayer();
             this.player.setAudioAttributes(audioAttributes);
+            // WAKE_LOCK is declared in AndroidManifest. Keep playback alive when
+            // the screen locks; this is for local audio, not YouTube streams.
+            this.player.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
             // Prefer a read-only descriptor for persisted picker and MediaStore
             // content URIs. This avoids provider-specific content URI failures.
             setTrackDataSource(this.player, Uri.parse(id));

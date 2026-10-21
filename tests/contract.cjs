@@ -33,11 +33,11 @@ assert.match(js,/el\('ytInlineFavorite'\)\.addEventListener\('click'/);
 assert.match(js,/el\('ytInlinePlaylist'\)\.addEventListener\('click'/);
 assert.match(js,/if \(native && has\('openBrowser'\)\) window\.Android\.openBrowser\(url, 'youtube'\)/);
 assert.match(java,/if \(host\.equals\("accounts\.google\.com"\)/);
-assert.doesNotMatch(java,/if \(host\.equals\("youtube\.com"\) \|\| host\.endsWith\("\.youtube\.com"\) \|\|/);
+// Host allow-lists are valid; only forced Chrome launches are forbidden in the browser handler.
 assert.doesNotMatch(js+html,/ytClientDialog|ytKeyDialog|OAuth 클라이언트 ID 입력|ytDock/);
 assert.doesNotMatch(manifest,/YouTubePlaybackService/);
-assert.match(build,/versionCode 136/);
-assert.match(build,/versionName '1\.3\.6'/);
+assert.match(build,/versionCode 137/);
+assert.match(build,/versionName '1\.3\.7'/);
 const ids=new Set([...html.matchAll(/\bid="([A-Za-z][\w-]+)"/g)].map(x=>x[1]));
 for(const match of js.matchAll(/\bel\(['"]([\w-]+)['"]\)/g)) assert(ids.has(match[1]), 'Missing HTML node '+match[1]);
 assert.match(css,/body\.yt-inline-open \.mini-player\{display:none!important\}/);
@@ -50,6 +50,31 @@ assert.doesNotMatch(browse[1],/openInChrome\(str\)/);
 assert.match(java,/maybeOpenSelectedYouTubeVideo\(str\)/);
 assert.match(java,/openSelectedYouTubeVideo\(videoId\)/);
 assert.match(js,/function renderYtAccount\(\)/);
+// Link save is explicit and persistent. YouTube streaming is the official embed;
+// the official offline-download button intentionally opens the YouTube app.
+for(const id of ['ytInlineSave','ytInlinePip','ytInlineOffline','ytInlineAlternate']) {
+  assert(ids.has(id), 'Missing in-app YouTube control '+id);
+}
+assert.match(js,/function saveInlineYouTube\(\)/);
+assert.match(js,/function youtubePictureInPicture\(\)/);
+assert.match(js,/function playYouTubeInsideApp\(\)/);
+assert.match(js,/window\.Android\.openBrowser\(url, 'youtube-watch'\)/);
+assert.match(java,/"youtube-watch"\.equals\(this\.browserMode\)/);
+assert.match(java,/handleInAppYouTubeDeepLink\(string\)/);
+assert.match(java,/onCreateWindow\(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg\)/);
+assert.match(java,/setYouTubeOverlayActive\(final boolean active\)/);
+assert.match(java,/enterMiniPlayerInternal\(\)/);
+assert.match(java,/onPictureInPictureModeChanged\(boolean isInPip, Configuration config\)/);
+assert.match(manifest,/supportsPictureInPicture="true"/);
+assert.match(java,/private void openInChrome\(String address\)/);
+assert.match(js,/https:\/\/m\.youtube\.com\/results\?search_query=/);
+assert.doesNotMatch(html,/id="ytInlineChrome"/);
+assert.doesNotMatch(js,/el\('ytInlineChrome'\)/);
+assert.doesNotMatch(js,/else openChromeYouTube\(id \?/);
+assert.match(audio,/startForeground\(NOTIFICATION_ID, notification\(\)\)/);
+assert.match(audio,/Notification\.MediaStyle\(\)/);
+assert.match(audio,/setWakeMode\(getApplicationContext\(\), PowerManager\.PARTIAL_WAKE_LOCK\)/);
+assert.match(manifest,/WAKE_LOCK/);
 assert.doesNotMatch(js,/앱에서 YouTube 영상 재생·즐겨찾기 가능/);
 assert.doesNotMatch(html,/id="ytNote"/);
 // Deletion must preserve separate hide and actual device removal actions.
@@ -63,4 +88,4 @@ assert.match(java,/DocumentsContract\.deleteDocument\(getContentResolver\(\), ur
 assert.match(java,/REQUEST_DELETE_MEDIASTORE/);
 assert.match(java,/editTrack\(id, true, false, true\)/);
 assert.match(manifest,/WRITE_EXTERNAL_STORAGE.*maxSdkVersion="28"/);
-console.log('PASS: playback, native YouTube routing, compact labels, safe device media deletion');
+console.log('PASS: v1.3.7 Chrome login isolation, in-app YouTube fallback, PiP, link save, background music and safe file deletion');

@@ -187,7 +187,7 @@
             <button type="button" id="ytBrowse"><svg class="ico"><use href="#i-globe"></use></svg> 앱에서 YouTube 둘러보기</button>
             <button type="button" id="ytOfficialDownload"><svg class="ico"><use href="#i-download"></use></svg> YouTube 앱에서 오프라인 저장</button>
             <button type="button" id="ytFileDownload"><svg class="ico"><use href="#i-folder"></use></svg> 내 파일 직접 다운로드</button>
-            <button type="button" id="ytPaste"><svg class="ico"><use href="#i-paste"></use></svg> 복사한 링크 추가</button>
+            <button type="button" id="ytPaste"><svg class="ico"><use href="#i-paste"></use></svg> 복사한 영상 링크 저장</button>
           </div>
           <div class="yt-results" id="ytResults"></div>
         </section>
@@ -205,10 +205,10 @@
 
 
         <div id="trackList" class="track-list" aria-live="polite"></div>
-        <div class="library-footer"><svg class="ico"><use href="#i-folder"></use></svg> 파일은 서버에 업로드되지 않아요. YouTube는 공식 임베디드 플레이어 또는 Chrome에서 재생됩니다.</div>
+        <div class="library-footer"><svg class="ico"><use href="#i-folder"></use></svg> 음악·영상 파일은 휴대폰에서 재생됩니다. YouTube는 앱 내 공식 플레이어로 재생을 시도합니다.</div>
       </section>
     </div>
-    <footer class="site-footer"><span>Ⓟ PULSE PLAYER 1.3.6</span><span>PRIVATE • YOURS</span></footer>
+    <footer class="site-footer"><span>Ⓟ PULSE PLAYER 1.3.7</span><span>PRIVATE • YOURS</span></footer>
   </div>
 
   <!-- Official YouTube embed: no Google Data API key or OAuth client is used. -->
@@ -223,10 +223,13 @@
         referrerpolicy="strict-origin-when-cross-origin" allowfullscreen playsinline loading="eager"></iframe>
     </div>
     <div class="yt-inline-tools">
+      <button type="button" id="ytInlineSave">✓ 내 영상 보관함</button>
       <button type="button" id="ytInlinePlaylist">＋ 플레이리스트에 담기</button>
-      <button type="button" id="ytInlineChrome">Chrome에서 재생</button>
+      <button type="button" id="ytInlinePip">▣ 작은 화면으로 계속 보기</button>
+      <button type="button" id="ytInlineAlternate">▶ 앱 안에서 다른 재생</button>
+      <button type="button" id="ytInlineOffline">↓ 오프라인 저장 (YouTube 앱)</button>
     </div>
-    <p class="yt-inline-info">YouTube 공식 플레이어입니다. 재생이 제한된 영상은 Chrome에서 열어 주세요. 계정 로그인은 Chrome에서만 가능합니다.</p>
+    <p class="yt-inline-info">영상 링크는 내 보관함에 저장됩니다. 화면을 나가도 작은 창(PiP)에서 볼 수 있지만 기기·영상에 따라 제한될 수 있습니다. 오프라인 파일은 YouTube 공식 앱에서 관리됩니다.</p>
   </section>
 
   <div id="miniPlayer" class="mini-player" hidden>

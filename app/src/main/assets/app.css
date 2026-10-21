@@ -207,7 +207,11 @@ body.modal-open{overflow:hidden}
 .yt-inline-frame iframe{width:100%;height:100%;border:0;background:#000}
 .yt-inline-tools{display:flex;flex-wrap:wrap;gap:8px;padding:14px 12px 0}
 .yt-inline-tools button{flex:1;min-width:145px;min-height:44px;background:#392b45;border:1px solid #785e8e;border-radius:12px;color:#f4dfff;font-weight:800;font-size:13px}
-.yt-inline-info{padding:4px 16px;font-size:12px;line-height:1.6;color:#ac9eba}
+.yt-inline-tools #ytInlineSave,.yt-inline-tools #ytInlinePip{background:#49345d;border-color:#aa84cb}
+body.yt-pip .yt-inline-player{padding:0!important;background:#000;inset:0;max-width:none;width:100%;transform:none;border:0;box-shadow:none}
+body.yt-pip .yt-inline-header,body.yt-pip .yt-inline-tools,body.yt-pip .yt-inline-info{display:none!important}
+body.yt-pip .yt-inline-frame{height:100%;aspect-ratio:auto;flex:1}
+.yt-inline-info{padding:8px 16px;font-size:12px;line-height:1.6;color:#ac9eba}
 body.yt-inline-open{overflow:hidden}
 body.yt-inline-open .mini-player{display:none!important}
 @media(min-width:760px){.yt-inline-player{max-width:740px;left:50%;right:auto;width:100%;transform:translateX(-50%);border:1px solid #584365;box-shadow:0 0 0 100vmax #000a}}

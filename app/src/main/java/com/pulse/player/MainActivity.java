@@ -2,6 +2,7 @@ package com.pulse.player;
 
 import android.app.Activity;
 import android.app.PendingIntent;
+import android.app.PictureInPictureParams;
 import android.app.RecoverableSecurityException;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
@@ -13,15 +14,19 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.graphics.Bitmap;
 import android.graphics.drawable.GradientDrawable;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Message;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.provider.DocumentsContract;
+import android.content.res.Configuration;
+import android.util.Rational;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
@@ -82,6 +87,10 @@ public final class MainActivity extends Activity {
     private TextView browserTitle;
     private WebView browserView;
     private boolean browserVisible;
+    private LinearLayout browserToolbar;
+    // Only the official YouTube player or an app-owned local video may enter PiP.
+    private boolean youtubeInlineActive;
+    private boolean suppressNextAutoPip;
     private WebChromeClient.CustomViewCallback customCallback;
     private View customView;
     private SharedPreferences prefs;
@@ -1516,6 +1525,7 @@ public final class MainActivity extends Activity {
                 }
             }));
             linearLayout.addView(linearLayout2, new LinearLayout.LayoutParams(-1, -2));
+            this.browserToolbar = linearLayout2;
             this.browserView = new WebView(this);
             WebSettings settings = this.browserView.getSettings();
             settings.setJavaScriptEnabled(true);
@@ -1525,6 +1535,8 @@ public final class MainActivity extends Activity {
             settings.setMediaPlaybackRequiresUserGesture(false);
             settings.setLoadWithOverviewMode(true);
             settings.setUseWideViewPort(true);
+            settings.setSupportMultipleWindows(true);
+            settings.setJavaScriptCanOpenWindowsAutomatically(true);
             try {
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this.browserView, true);
             } catch (Exception e) {
@@ -1536,35 +1548,22 @@ public final class MainActivity extends Activity {
                     if (string.startsWith("http://") || string.startsWith("https://")) {
                         Uri target = Uri.parse(string);
                         String host = target.getHost() == null ? "" : target.getHost().toLowerCase(Locale.ROOT);
-                        // Browsing and playback are allowed in the app's YouTube WebView.
-                        // Google account authentication must stay in Chrome: WebView
-                        // cannot read Chrome login cookies or perform unsupported OAuth.
+                        // Never launch Chrome automatically. Chrome is ONLY used by
+                        // the explicit Google login button (or a user chosen fallback).
                         if (host.equals("accounts.google.com") || host.endsWith(".accounts.google.com")) {
-                            MainActivity.this.openInChrome(string);
+                            Toast.makeText(MainActivity.this, "구글 로그인은 앱의 Chrome 로그인 버튼에서 해주세요.", Toast.LENGTH_LONG).show();
                             return true;
                         }
-                        // A video selected in YouTube's search results should play using
-                        // the app's embedded YouTube player, not redirect to Chrome.
                         String videoId = MainActivity.extractYouTubeId(string);
-                        if (!videoId.isEmpty()) {
+                        if (!videoId.isEmpty() && !"youtube-watch".equals(MainActivity.this.browserMode)) {
                             MainActivity.this.openSelectedYouTubeVideo(videoId);
                             return true;
                         }
                         return false;
                     }
-                    if (!string.startsWith("intent://")) {
-                        return true;
-                    }
-                    try {
-                        String stringExtra = Intent.parseUri(string, 1).getStringExtra("browser_fallback_url");
-                        if (stringExtra == null || !stringExtra.startsWith("http")) {
-                            return true;
-                        }
-                        webView.loadUrl(stringExtra);
-                        return true;
-                    } catch (Exception e2) {
-                        return true;
-                    }
+                    // YouTube sometimes opens videos using intent:// or vnd.youtube:.
+                    // Intercept them here so Android never sends the video to Chrome.
+                    return MainActivity.this.handleInAppYouTubeDeepLink(string);
                 }
 
                 @Override // android.webkit.WebViewClient
@@ -1584,6 +1583,41 @@ public final class MainActivity extends Activity {
                 }
             });
             this.browserView.setWebChromeClient(new WebChromeClient() { // from class: com.pulse.player.MainActivity.22
+                // A YouTube search result may use target=_blank/window.open. Route
+                // the new navigation back to the app instead of an external app.
+                @Override
+                public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+                    if (!isUserGesture) return false;
+                    final WebView popup = new WebView(MainActivity.this);
+                    popup.setVisibility(View.INVISIBLE);
+                    MainActivity.this.root.addView(popup, new FrameLayout.LayoutParams(1, 1));
+                    final boolean[] consumed = {false};
+                    popup.setWebViewClient(new WebViewClient() {
+                        private void route(String url) {
+                            if (consumed[0] || url == null || url.equals("about:blank")) return;
+                            consumed[0] = true;
+                            MainActivity.this.routePopupToInApp(url);
+                            popup.post(() -> {
+                                try {
+                                    popup.stopLoading();
+                                    ViewGroup parent = (ViewGroup) popup.getParent();
+                                    if (parent != null) parent.removeView(popup);
+                                    popup.destroy();
+                                } catch (Exception ignored) { }
+                            });
+                        }
+                        @Override
+                        public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
+                            route(request.getUrl().toString());
+                            return true;
+                        }
+                        @Override
+                        public void onPageStarted(WebView v, String url, Bitmap icon) { route(url); }
+                    });
+                    ((WebView.WebViewTransport) resultMsg.obj).setWebView(popup);
+                    resultMsg.sendToTarget();
+                    return true;
+                }
                 @Override // android.webkit.WebChromeClient
                 public void onReceivedTitle(WebView webView, String str) {
                     MainActivity.this.updateBrowserState(webView.getUrl());
@@ -1613,6 +1647,7 @@ public final class MainActivity extends Activity {
             return;
         }
         Uri uri = Uri.parse("https://www.youtube.com/watch?v=" + videoId);
+        suppressNextAutoPip = true;
         Intent intent = new Intent(Intent.ACTION_VIEW, uri);
         intent.setPackage("com.google.android.youtube");
         try {
@@ -1692,8 +1727,8 @@ public final class MainActivity extends Activity {
                 String host = target.getHost() == null ? "" : target.getHost().toLowerCase(Locale.ROOT);
                 // YouTube browsing and search stay inside this Activity. Only an explicit
                 // Chrome login or fallback button may launch the external browser.
-                if ("youtube".equals(str2) || host.equals("youtube.com") ||
-                    host.endsWith(".youtube.com") || host.equals("youtu.be")) {
+                if (!"youtube-watch".equals(str2) && ("youtube".equals(str2) || host.equals("youtube.com") ||
+                    host.endsWith(".youtube.com") || host.equals("youtu.be"))) {
                     str2 = "youtube";
                 }
                 ensureBrowser();
@@ -1707,11 +1742,11 @@ public final class MainActivity extends Activity {
                     this.browserPrimary.setVisibility(0);
                     this.browserPrimary.setText("선택한 가사 가져오기");
                     this.browserFavorite.setVisibility(8);
-                } else if ("youtube".equals(this.browserMode)) {
+                } else if ("youtube".equals(this.browserMode) || "youtube-watch".equals(this.browserMode)) {
                     this.browserSecondary.setVisibility(0);
                     this.browserSecondary.setText("＋ 담기");
                     this.browserPrimary.setVisibility(0);
-                    this.browserPrimary.setText("▶ 앱에서 재생");
+                    this.browserPrimary.setText("youtube-watch".equals(this.browserMode) ? "▣ 작은 화면" : "▶ 앱에서 재생");
                     this.browserFavorite.setVisibility(0);
                 } else {
                     this.browserSecondary.setVisibility(8);
@@ -1739,7 +1774,7 @@ public final class MainActivity extends Activity {
                 title = "가사를 길게 눌러 선택 → 가져오기";
             }
             this.browserTitle.setText(title);
-            if ("youtube".equals(this.browserMode) || "web".equals(this.browserMode)) {
+            if ("youtube".equals(this.browserMode) || "youtube-watch".equals(this.browserMode) || "web".equals(this.browserMode)) {
                 this.browserVideoId = extractYouTubeId(str);
                 boolean z = !this.browserVideoId.isEmpty();
                 if ("web".equals(this.browserMode) && z) {
@@ -1747,7 +1782,7 @@ public final class MainActivity extends Activity {
                     this.browserSecondary.setVisibility(0);
                     this.browserPrimary.setVisibility(0);
                     this.browserSecondary.setText("＋ 담기");
-                    this.browserPrimary.setText("▶ 앱에서 재생");
+                    this.browserPrimary.setText("youtube-watch".equals(this.browserMode) ? "▣ 작은 화면" : "▶ 앱에서 재생");
                     this.browserFavorite.setVisibility(0);
                 }
                 this.browserFavorite.setEnabled(z);
@@ -1761,6 +1796,61 @@ public final class MainActivity extends Activity {
             }
             this.browserPrimary.setEnabled(true);
             this.browserPrimary.setAlpha(1.0f);
+        }
+    }
+
+    // Prevent Android deep links/window.open from switching YouTube playback to Chrome.
+    private boolean handleInAppYouTubeDeepLink(String url) {
+        if (url == null) return true;
+        if (!url.startsWith("intent://") && !url.startsWith("vnd.youtube:")) return true;
+        String videoId = extractYouTubeId(url);
+        String fallback = "";
+        if (url.startsWith("intent://")) {
+            try {
+                Intent target = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                fallback = target.getStringExtra("browser_fallback_url");
+                if (videoId.isEmpty()) videoId = extractYouTubeId(fallback);
+                if (videoId.isEmpty() && target.getDataString() != null) {
+                    videoId = extractYouTubeId(target.getDataString());
+                }
+            } catch (Exception ignored) { }
+        } else {
+            // Some YouTube mobile pages use vnd.youtube:VIDEO_ID.
+            String tail = url.substring("vnd.youtube:".length());
+            if (YT_ID.matcher(tail).matches()) videoId = tail;
+        }
+        if (!videoId.isEmpty()) {
+            if ("youtube-watch".equals(browserMode) && browserView != null) {
+                browserView.loadUrl("https://m.youtube.com/watch?v=" + videoId);
+            } else openSelectedYouTubeVideo(videoId);
+            return true;
+        }
+        Toast.makeText(this, "이 앱에서 열 수 없는 YouTube 이동 요청입니다. 영상 링크를 복사해 추가하세요.", Toast.LENGTH_SHORT).show();
+        return true;
+    }
+
+    private void routePopupToInApp(String url) {
+        if (url == null) return;
+        if (url.startsWith("intent://") || url.startsWith("vnd.youtube:")) {
+            handleInAppYouTubeDeepLink(url);
+            return;
+        }
+        Uri uri;
+        try { uri = Uri.parse(url); } catch (Exception ignored) { return; }
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+        if (host.equals("accounts.google.com") || host.endsWith(".accounts.google.com")) {
+            Toast.makeText(this, "로그인은 Chrome 로그인 버튼에서 진행하세요.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!"https".equalsIgnoreCase(uri.getScheme())) return;
+        String video = extractYouTubeId(url);
+        if (!video.isEmpty()) {
+            if ("youtube-watch".equals(browserMode) && browserView != null)
+                browserView.loadUrl("https://m.youtube.com/watch?v=" + video);
+            else openSelectedYouTubeVideo(video);
+        } else if (host.equals("youtube.com") || host.endsWith(".youtube.com") ||
+                   host.equals("youtu.be")) {
+            openBrowser(url, "youtube");
         }
     }
 
@@ -1826,6 +1916,10 @@ public final class MainActivity extends Activity {
 
     /* JADX INFO: Access modifiers changed from: private */
     public void browserAction(final boolean z) {
+        if ("youtube-watch".equals(this.browserMode) && z) {
+            enterMiniPlayerInternal();
+            return;
+        }
         if ("lyrics".equals(this.browserMode)) {
             this.browserView.evaluateJavascript("(function(){try{var s=window.getSelection?String(window.getSelection()):'';return s;}catch(e){return ''}})()", new ValueCallback<String>() { // from class: com.pulse.player.MainActivity.23
                 @Override // android.webkit.ValueCallback
@@ -1950,6 +2044,7 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "브라우저 주소가 잘못되었습니다.", Toast.LENGTH_SHORT).show();
             return;
         }
+        suppressNextAutoPip = true;
         Intent intent = new Intent(Intent.ACTION_VIEW, uri);
         intent.addCategory(Intent.CATEGORY_BROWSABLE);
         intent.setPackage("com.android.chrome");
@@ -1963,6 +2058,42 @@ public final class MainActivity extends Activity {
                 Toast.makeText(this, "Chrome 또는 브라우저를 설치해 주세요.", Toast.LENGTH_LONG).show();
             }
         }
+    }
+
+    private boolean enterMiniPlayerInternal() {
+        if (Build.VERSION.SDK_INT < 26 ||
+            !(youtubeInlineActive || (browserVisible && "youtube-watch".equals(browserMode)) || videoActive)) {
+            Toast.makeText(this, "재생 중인 영상에서 작은 화면을 사용할 수 있습니다.", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        if (!getPackageManager().hasSystemFeature("android.software.picture_in_picture")) {
+            Toast.makeText(this, "이 휴대폰은 작은 화면 재생을 지원하지 않습니다.", Toast.LENGTH_LONG).show();
+            return false;
+        }
+        try {
+            PictureInPictureParams params = new PictureInPictureParams.Builder()
+                .setAspectRatio(new Rational(16, 9)).build();
+            return enterPictureInPictureMode(params);
+        } catch (Exception e) {
+            Toast.makeText(this, "작은 화면을 사용할 수 없습니다. 앱의 PiP 권한을 확인하세요.", Toast.LENGTH_LONG).show();
+            return false;
+        }
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (!suppressNextAutoPip && (youtubeInlineActive ||
+              (browserVisible && "youtube-watch".equals(browserMode)) || videoActive)) {
+            enterMiniPlayerInternal();
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPip, Configuration config) {
+        super.onPictureInPictureModeChanged(isInPip, config);
+        if (browserToolbar != null) browserToolbar.setVisibility(isInPip ? View.GONE : View.VISIBLE);
+        js("window.onPipChanged && window.onPipChanged(" + isInPip + ");");
     }
 
     @Override // android.app.Activity
@@ -1998,11 +2129,11 @@ public final class MainActivity extends Activity {
 
     @Override // android.app.Activity
     protected void onPause() {
-        if (this.videoActive && this.videoPrepared && this.videoView.isPlaying()) {
+        if (!isInPictureInPictureMode() && this.videoActive && this.videoPrepared && this.videoView.isPlaying()) {
             this.videoView.pause();
             this.videoPausedByLifecycle = true;
         }
-        if (this.browserVisible && this.browserView != null) {
+        if (this.browserVisible && this.browserView != null && !isInPictureInPictureMode()) {
             try {
                 this.browserView.evaluateJavascript("document.querySelectorAll('video,audio').forEach(function(m){try{m.pause()}catch(e){}})", null);
             } catch (Exception e) {
@@ -2025,6 +2156,7 @@ public final class MainActivity extends Activity {
         if (this.browserVisible && this.browserView != null) {
             this.browserView.onResume();
         }
+        suppressNextAutoPip = false;
         js("window.onAppVisibility && window.onAppVisibility(true);");
         pushState();
     }
@@ -2077,10 +2209,20 @@ public final class MainActivity extends Activity {
                 jSONObject.put("speed", MainActivity.this.prefs.getFloat("speed", 1.0f));
                 jSONObject.put("lastScan", MainActivity.this.prefs.getLong("lastScan", 0L));
                 jSONObject.put("hiddenCount", MainActivity.this.readHidden().size());
-                jSONObject.put("version", "1.3.5");
+                jSONObject.put("version", "1.3.7");
             } catch (Exception e) {
             }
             return jSONObject.toString();
+        }
+
+        @JavascriptInterface
+        public void setYouTubeOverlayActive(final boolean active) {
+            MainActivity.this.runOnUiThread(() -> MainActivity.this.youtubeInlineActive = active);
+        }
+
+        @JavascriptInterface
+        public void enterMiniPlayer() {
+            MainActivity.this.runOnUiThread(() -> MainActivity.this.enterMiniPlayerInternal());
         }
 
         @JavascriptInterface

@@ -37,7 +37,7 @@
   let permissionGranted = false;
   let lastScanAt = 0;
   let hiddenCount = 0;
-  let appVersion = '1.3.6';
+  let appVersion = '1.3.7';
 
   const storage = {
     get(key) { try { return localStorage.getItem(key); } catch (_) { return null; } },
@@ -1190,6 +1190,8 @@
       document.body.classList.remove('yt-inline-open');
     }
     inlineYouTubeId = '';
+    if (has('setYouTubeOverlayActive')) window.Android.setYouTubeOverlayActive(false);
+    document.body.classList.remove('yt-pip');
     playing = false;
     preparing = false;
   }
@@ -1214,13 +1216,46 @@
     updateInlineFavorite();
     panel.hidden = false;
     document.body.classList.add('yt-inline-open');
+    if (has('setYouTubeOverlayActive')) window.Android.setYouTubeOverlayActive(true);
     el('miniPlayer').hidden = true;
+    const saveButton = el('ytInlineSave');
+    if (saveButton) saveButton.textContent = track(`yt:${videoId}`) ? '✓ 내 영상에 저장됨' : '＋ 내 영상 링크 저장';
     // A document loaded from appassets.androidplatform.net sends the HTTP
     // Referer that YouTube now requires (error 153 otherwise). The origin
     // parameter names the embedding origin, NOT a Google Cloud OAuth ID.
     const origin = 'https://appassets.androidplatform.net';
     frame.src = `https://www.youtube.com/embed/${videoId}?playsinline=1&autoplay=1&enablejsapi=1&origin=${encodeURIComponent(origin)}&rel=0`;
     el('ytInlineClose').focus();
+  }
+
+  window.onPipChanged = pip => {
+    // The official YouTube iframe remains visible in Android's Picture-in-Picture.
+    document.body.classList.toggle('yt-pip', !!pip);
+  };
+
+  function saveInlineYouTube() {
+    const videoId = inlineYouTubeId;
+    if (!videoId) return;
+    const existing = track(`yt:${videoId}`);
+    if (existing) { toast('이미 내 YouTube 보관함에 저장된 영상입니다.'); return; }
+    addYouTube(videoId, false, {title: el('ytInlineTitle').textContent});
+    el('ytInlineSave').textContent = '✓ 내 영상에 저장됨';
+  }
+
+  function playYouTubeInsideApp() {
+    const videoId = inlineYouTubeId;
+    if (!videoId) return;
+    ytStop();
+    renderNow();
+    const url = `https://m.youtube.com/watch?v=${videoId}`;
+    if (native && has('openBrowser')) window.Android.openBrowser(url, 'youtube-watch');
+    else window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  function youtubePictureInPicture() {
+    if (!inlineYouTubeId) return;
+    if (has('enterMiniPlayer')) window.Android.enterMiniPlayer();
+    else toast('작은 화면은 안드로이드 앱에서 지원됩니다.');
   }
 
   function openChromeYouTube(url) {
@@ -1257,8 +1292,8 @@
     }
     ytStop();
     renderNow();
-    if (native && has('openBrowser')) window.Android.openBrowser('https://www.youtube.com/', 'youtube');
-    else openChromeYouTube('https://www.youtube.com/');
+    if (native && has('openBrowser')) window.Android.openBrowser('https://m.youtube.com/', 'youtube');
+    else window.open('https://m.youtube.com/', '_blank', 'noopener,noreferrer');
   }
 
   function openExternal(url) {
@@ -1270,9 +1305,9 @@
     const id = ytIdFrom(videoId);
     ytStop();
     renderNow();
-    if (id && has('openInYouTubeApp')) window.Android.openInYouTubeApp(id);
-    else openChromeYouTube(id ? `https://www.youtube.com/watch?v=${id}` : 'https://www.youtube.com/');
-    toast('오프라인 저장은 YouTube 공식 앱에서 제공되는 경우에만 이용할 수 있습니다.');
+    if (!id) { toast('오프라인 저장할 YouTube 영상을 먼저 선택하세요.'); return; }
+    if (has('openInYouTubeApp')) window.Android.openInYouTubeApp(id);
+    else toast('오프라인 저장은 YouTube 공식 앱에서 지원되는 영상에 한해 이용할 수 있습니다.');
   }
 
   const DIRECT_MEDIA_EXT = /\.(?:mp4|m4v|mov|webm|mp3|m4a|aac|wav|flac|ogg|opus)$/i;
@@ -1372,9 +1407,9 @@
       return;
     }
     // No paid Data API is needed: the ordinary YouTube search page is browsed in-app.
-    const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
+    const url = `https://m.youtube.com/results?search_query=${encodeURIComponent(q)}`;
     if (native && has('openBrowser')) window.Android.openBrowser(url, 'youtube');
-    else openChromeYouTube(url);
+    else window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   function renderYtResults() {
@@ -1716,12 +1751,13 @@
       const id = `yt:${inlineYouTubeId}`;
       if (track(id)) { toggleFavorite(id); updateInlineFavorite(); }
     });
+    el('ytInlineSave').addEventListener('click', saveInlineYouTube);
+    el('ytInlinePip').addEventListener('click', youtubePictureInPicture);
+    el('ytInlineAlternate').addEventListener('click', playYouTubeInsideApp);
+    el('ytInlineOffline').addEventListener('click', () => { if (inlineYouTubeId) openYouTubeOffline(inlineYouTubeId); });
     el('ytInlinePlaylist').addEventListener('click', () => {
       const id = `yt:${inlineYouTubeId}`;
       if (track(id)) addToPlaylist(id);
-    });
-    el('ytInlineChrome').addEventListener('click', () => {
-      if (inlineYouTubeId) openChromeYouTube(`https://www.youtube.com/watch?v=${inlineYouTubeId}`);
     });
 
     el('ytOfficialDownload').addEventListener('click', () => openYouTubeOffline(isYT(current()) ? current().videoId : ''));
