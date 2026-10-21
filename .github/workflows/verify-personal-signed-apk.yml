@@ -1,0 +1,31 @@
+name: Verify private-key signed Pulse Player APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'downloads/PulsePlayer-v1.3.8-Personal-FixedSignature.apk'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Android v2 signature, certificate, and APK package
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          APK="downloads/PulsePlayer-v1.3.8-Personal-FixedSignature.apk"
+          SIGNER="$SDK/build-tools/35.0.0/apksigner"
+          AAPT="$SDK/build-tools/35.0.0/aapt"
+          test -x "$SIGNER"
+          "$SIGNER" verify --verbose --print-certs "$APK" | tee /tmp/pulse-apk-verify.txt
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/pulse-apk-verify.txt
+          grep -qi 'c9e44d917afe4499e63a4f48405c2387aae22dbad18db6bf11c7ef8374a0ea79' /tmp/pulse-apk-verify.txt
+          "$AAPT" dump badging "$APK" | tee /tmp/pulse-apk-package.txt | grep "^package: name='com.pulse.player' versionCode='138'"
+          sha256sum "$APK"
