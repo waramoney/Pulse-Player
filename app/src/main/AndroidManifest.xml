@@ -11,7 +11,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
-    <queries><package android:name="com.android.chrome" /></queries>
+    <queries>
+        <package android:name="com.android.chrome" />
+        <package android:name="com.google.android.youtube" />
+    </queries>
 
     <application
         android:allowBackup="false"

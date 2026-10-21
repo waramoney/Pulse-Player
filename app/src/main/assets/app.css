@@ -181,6 +181,8 @@ body.modal-open{overflow:hidden}
 .yt-quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .yt-quick button{display:inline-flex;align-items:center;gap:5px;border:1px solid #4b3040;background:#241921;color:#f0d3da;border-radius:10px;padding:8px 10px;font-size:11px;font-weight:800}
 .yt-quick .ico{width:14px;height:14px}
+.yt-quick #ytOfficialDownload{border-color:#77566a;background:#3b2235;color:#ffe6ea}
+.yt-quick #ytFileDownload{border-color:#3c5d6b;background:#19303a;color:#d7f2fa}
 .yt-note{margin:10px 2px 0;color:#a48f98;font-size:11px;line-height:1.65}
 .yt-note b{color:#ffc2cb}
 .yt-results:empty{display:none}

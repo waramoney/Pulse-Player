@@ -37,7 +37,7 @@
   let permissionGranted = false;
   let lastScanAt = 0;
   let hiddenCount = 0;
-  let appVersion = '1.3.2';
+  let appVersion = '1.3.3';
   let bgPlay = true;
 
   const storage = {
@@ -340,6 +340,7 @@
     el('dialogChoices').replaceChildren();
     el('dialogTools').replaceChildren();
     el('dialogFilters').replaceChildren();
+    el('dialogName').type = 'text';
     el('dialogName').placeholder = '플레이리스트 이름';
     el('dialogName').maxLength = 64;
     el('dialogLyrics').placeholder = '가사를 직접 입력하거나 붙여넣으세요.\n[00:12.50] 시간 표시가 있는 LRC도 지원합니다.';
@@ -543,9 +544,9 @@
       panel.appendChild(button('YouTube 화면에서 보기', 'dialog-option', () => {
         closeModal(); openYouTubePage(item.videoId || item.id.slice(3));
       }, 'globe'));
-      panel.appendChild(button('YouTube 앱으로 열기', 'dialog-option', () => {
-        closeModal(); openExternal(`https://www.youtube.com/watch?v=${item.videoId || item.id.slice(3)}`);
-      }, 'external'));
+      panel.appendChild(button('YouTube 앱에서 보기·오프라인 저장 (Premium)', 'dialog-option', () => {
+        closeModal(); openYouTubeOffline(item.videoId || item.id.slice(3));
+      }, 'download'));
     }
     if (selected && selected.tracks.includes(id)) {
       const idx = selected.tracks.indexOf(id);
@@ -1309,6 +1310,9 @@
       closeModal(); ytStop(true); openExternal(link);
     });
     el('dialogChoices').hidden = false;
+    el('dialogChoices').appendChild(button('YouTube 공식 앱에서 보기·저장', 'dialog-option', () => {
+      closeModal(); openYouTubeOffline(videoId);
+    }, 'download'));
     el('dialogChoices').appendChild(button('다음 영상', 'dialog-option', () => { closeModal(); nextPrevious(1, true); }, 'skip-next'));
     el('dialogChoices').appendChild(button('영상 저장·즐겨찾기는 유지돼요', 'dialog-option', closeModal, 'heart'));
   }
@@ -1369,6 +1373,51 @@
   function openExternal(url) {
     if (has('openExternal')) window.Android.openExternal(url);
     else window.open(url, '_blank', 'noopener');
+  }
+
+  // YouTube offline videos stay inside the official YouTube app. Pulse Player
+  // does not intercept ads or extract audiovisual streams from YouTube.
+  function openYouTubeOffline(videoId = '') {
+    const id = ytIdFrom(videoId);
+    if (ytState.active) { ytStop(true); playing = false; renderNow(); }
+    if (id && has('openInYouTubeApp')) window.Android.openInYouTubeApp(id);
+    else openExternal(id ? `https://www.youtube.com/watch?v=${id}` : 'https://www.youtube.com/');
+    toast('YouTube 앱에서 영상 아래 다운로드를 선택하세요. Premium/영상별 제공 여부에 따라 달라집니다.');
+  }
+
+  const DIRECT_MEDIA_EXT = /\.(?:mp4|m4v|mov|webm|mp3|m4a|aac|wav|flac|ogg|opus)$/i;
+  const youtubeHosts = ['youtube.com', 'youtube-nocookie.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'];
+  function directMediaUrl(text) {
+    try {
+      const parsed = new URL(String(text || '').trim());
+      const host = parsed.hostname.toLowerCase();
+      if (parsed.protocol !== 'https:' || !DIRECT_MEDIA_EXT.test(decodeURIComponent(parsed.pathname))) return '';
+      if (youtubeHosts.some(d => host === d || host.endsWith('.' + d))) return '';
+      if (parsed.username || parsed.password) return '';
+      return parsed.href;
+    } catch (_) { return ''; }
+  }
+
+  function directMediaDownloadDialog() {
+    modal('내 영상·음악 파일 다운로드',
+      '직접 다운로드 권한이 있는 HTTPS 파일 주소(.mp4, .mp3 등)를 입력하세요. YouTube 시청 주소는 파일 주소가 아니므로 공식 YouTube 앱의 다운로드를 사용해야 합니다.',
+      '파일 저장', () => {
+        const url = directMediaUrl(el('dialogName').value);
+        if (!url) { toast('HTTPS로 시작하는 직접 MP4·MP3 등의 파일 주소를 확인하세요.'); return; }
+        if (has('downloadDirectMedia')) window.Android.downloadDirectMedia(url);
+        else openExternal(url);
+        closeModal();
+        toast(native ? '파일 저장을 요청했어요. 알림에서 진행 상태를 확인하세요.' : '브라우저에서 파일 주소를 열었어요.');
+      });
+    el('dialogName').hidden = false;
+    el('dialogName').type = 'url';
+    el('dialogName').maxLength = 2048;
+    el('dialogName').placeholder = 'https://example.com/my-video.mp4';
+    el('dialogName').value = '';
+    el('dialogTools').hidden = false;
+    el('dialogTools').appendChild(button('주소 붙여넣기', 'tool paste', () => readClipboard().then(t => {
+      el('dialogName').value = t.trim();
+    }), 'paste'));
   }
 
   // browser-only persistence for YouTube items (native keeps them in the library)
@@ -2134,6 +2183,8 @@
     el('ytDockClose').addEventListener('click', () => { ytStop(true); playing = false; renderAll(); });
     el('ytForm').addEventListener('submit', e => { e.preventDefault(); ytSearch(el('ytQuery').value); });
     el('ytBrowse').addEventListener('click', () => openYouTubePage(''));
+    el('ytOfficialDownload').addEventListener('click', () => openYouTubeOffline(isYT(current()) ? current().videoId : ''));
+    el('ytFileDownload').addEventListener('click', directMediaDownloadDialog);
     el('ytPaste').addEventListener('click', () => readClipboard().then(text => {
       if (ytIdFrom(text)) addYouTube(text, false);
       else toast('복사한 내용에 YouTube 링크가 없어요. YouTube 앱에서 “공유 → 링크 복사” 후 눌러 보세요.');

@@ -2,6 +2,7 @@ package com.pulse.player;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DownloadManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -16,6 +17,7 @@ import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.provider.MediaStore;
 import android.text.Html;
 import android.text.TextUtils;
@@ -1425,6 +1427,85 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
         }
     }
 
+    // Open the current video in YouTube's official app so that an eligible user
+    // can use YouTube Premium offline downloads and ad-free playback there.
+    private void openOfficialYouTubeVideo(String videoId) {
+        if (videoId == null || !YT_ID.matcher(videoId).matches()) {
+            Toast.makeText(this, "YouTube 영상 주소를 확인해 주세요.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Uri uri = Uri.parse("https://www.youtube.com/watch?v=" + videoId);
+        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+        intent.setPackage("com.google.android.youtube");
+        try {
+            startActivity(intent);
+        } catch (Exception ignored) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            } catch (Exception e) {
+                Toast.makeText(this, "YouTube를 열 수 없습니다.", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private static boolean isRestrictedVideoHost(String host) {
+        if (host == null) return true;
+        String h = host.toLowerCase(Locale.ROOT);
+        String[] domains = {"youtube.com", "youtube-nocookie.com", "youtu.be", "googlevideo.com", "ytimg.com"};
+        for (String domain : domains) {
+            if (h.equals(domain) || h.endsWith("." + domain)) return true;
+        }
+        return false;
+    }
+
+    // Only user-supplied, HTTPS, directly hosted media files are downloaded.
+    // This is deliberately not a YouTube downloader, ad interceptor or stream extractor.
+    private void downloadAuthorizedMediaFile(String address) {
+        try {
+            if (address == null || address.length() > 2048) throw new IllegalArgumentException();
+            Uri uri = Uri.parse(address.trim());
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null || isRestrictedVideoHost(uri.getHost())) {
+                throw new IllegalArgumentException();
+            }
+            String rawName = uri.getLastPathSegment();
+            if (rawName == null || rawName.length() < 5 || rawName.length() > 160) throw new IllegalArgumentException();
+            if (!rawName.toLowerCase(Locale.ROOT).matches("^[^/]{1,160}\\.(mp4|m4v|mov|webm|mp3|m4a|aac|wav|flac|ogg|opus)$")) {
+                throw new IllegalArgumentException();
+            }
+            String filename = System.currentTimeMillis() + "_" + rawName.replaceAll("[^\\p{L}\\p{N}._-]", "_");
+            String ext = rawName.substring(rawName.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
+            String mime;
+            switch (ext) {
+                case "mp3": mime = "audio/mpeg"; break;
+                case "m4a": mime = "audio/mp4"; break;
+                case "aac": mime = "audio/aac"; break;
+                case "wav": mime = "audio/wav"; break;
+                case "flac": mime = "audio/flac"; break;
+                case "ogg": mime = "audio/ogg"; break;
+                case "opus": mime = "audio/opus"; break;
+                case "webm": mime = "video/webm"; break;
+                case "mov": mime = "video/quicktime"; break;
+                default: mime = "video/mp4"; break;
+            }
+            DownloadManager.Request request = new DownloadManager.Request(uri);
+            request.setTitle(rawName);
+            request.setDescription("Pulse Player · 미디어 파일 저장");
+            request.setMimeType(mime);
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            if (Build.VERSION.SDK_INT >= 29) {
+                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "PulsePlayer/" + filename);
+            } else {
+                request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, filename);
+            }
+            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            if (dm == null) throw new IllegalStateException();
+            dm.enqueue(request);
+            Toast.makeText(this, "다운로드를 시작했습니다. 알림에서 진행 상황을 확인하세요.", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "저장할 수 없습니다. HTTPS 직접 파일 주소인지 확인해 주세요.", Toast.LENGTH_LONG).show();
+        }
+    }
+
     /* JADX INFO: Access modifiers changed from: private */
     public void openBrowser(String str, String str2) {
         if (str != null) {
@@ -2287,7 +2368,7 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
                 jSONObject.put("speed", MainActivity.this.prefs.getFloat("speed", 1.0f));
                 jSONObject.put("lastScan", MainActivity.this.prefs.getLong("lastScan", 0L));
                 jSONObject.put("hiddenCount", MainActivity.this.readHidden().size());
-                jSONObject.put("version", "1.3.2");
+                jSONObject.put("version", "1.3.3");
             } catch (Exception e) {
             }
             return jSONObject.toString();
@@ -2488,6 +2569,20 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
                 public void run() {
                     MainActivity.this.openBrowser(str, str2);
                 }
+            });
+        }
+
+        @JavascriptInterface
+        public void openInYouTubeApp(final String videoId) {
+            MainActivity.this.runOnUiThread(new Runnable() {
+                @Override public void run() { MainActivity.this.openOfficialYouTubeVideo(videoId); }
+            });
+        }
+
+        @JavascriptInterface
+        public void downloadDirectMedia(final String url) {
+            MainActivity.this.runOnUiThread(new Runnable() {
+                @Override public void run() { MainActivity.this.downloadAuthorizedMediaFile(url); }
             });
         }
 
