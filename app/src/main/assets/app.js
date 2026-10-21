@@ -37,7 +37,7 @@
   let permissionGranted = false;
   let lastScanAt = 0;
   let hiddenCount = 0;
-  let appVersion = '1.3.5';
+  let appVersion = '1.3.6';
 
   const storage = {
     get(key) { try { return localStorage.getItem(key); } catch (_) { return null; } },
@@ -558,6 +558,11 @@
     panel.appendChild(button(removeText, 'dialog-option danger', () => {
       closeModal(); removeFile(id);
     }, 'trash'));
+    if (native && has('deleteOriginal') && (item.source === 'device' || item.source === 'import')) {
+      panel.appendChild(button('휴대폰 원본 파일 삭제', 'dialog-option danger', () => {
+        closeModal(); window.Android.deleteOriginal(id);
+      }, 'trash'));
+    }
   }
 
   function toggleFavorite(id) {
@@ -598,6 +603,23 @@
         toast(device ? '목록에서 숨겼습니다. 원본 파일은 보존됩니다.' : '목록에서 제거했습니다.');
       });
   }
+
+  window.onNativeFileDeleted = id => {
+    if (!id || typeof id !== 'string') return;
+    refreshCollectionReferences(id);
+    if (id === currentId) {
+      stopBrowser();
+      currentId = '';
+      playing = preparing = false;
+      position = duration = 0;
+    }
+    toast('휴대폰 원본 파일을 삭제했습니다.');
+    if (native && has('getLibrary')) nativeLibrary(parseJson(window.Android.getLibrary(), []));
+  };
+
+  window.onNativeFileDeleteFailed = message => {
+    toast(String(message || '원본 파일을 삭제하지 못했습니다.'));
+  };
 
   // ---------------------------------------------------------------- library rendering
   function createTrackRow(item, opts = {}) {
@@ -1336,14 +1358,8 @@
     if (!panel) return;
     panel.hidden = false;
     panel.replaceChildren();
-    const text = document.createElement('div');
-    text.className = 'yt-account-text';
-    const heading = document.createElement('strong');
-    heading.textContent = 'Chrome에서 YouTube 사용';
-    const hint = document.createElement('small');
-    hint.textContent = '앱에서 YouTube 영상 재생·즐겨찾기 가능. 계정 로그인은 Chrome에서 합니다. API 키나 클라이언트 ID는 필요 없습니다.';
-    text.append(heading, hint);
-    panel.append(text, button('Chrome에서 열기 / 로그인', 'yt-login', () => openChromeYouTube('https://www.youtube.com/'), 'external'));
+    panel.append(button('Chrome에서 열기 / 로그인', 'yt-login',
+      () => openChromeYouTube('https://www.youtube.com/'), 'external'));
   }
 
   function ytSearch(query) {
@@ -1366,10 +1382,7 @@
     if (!box) return;
     box.replaceChildren();
     renderYtAccount();
-    const hint = document.createElement('p');
-    hint.className = 'yt-loading';
-    hint.textContent = '이 화면에서 링크를 넣으면 앱 안에서 재생됩니다. 검색은 앱의 YouTube 브라우저에서 할 수 있고, 영상 페이지의 ♡ 버튼으로 즐겨찾기할 수 있습니다.';
-    box.appendChild(hint);
+    // Keep the screen compact: browsing and saved favorites are self-explanatory.
   }
 
   // ---------------------------------------------------------------- play control
@@ -1464,7 +1477,7 @@
     const item = current();
     if (!item) return;
     position = Math.max(0, Math.round(ms));
-    if (isYT(item)) { toast('YouTube 재생 위치는 Chrome에서 조절하세요.'); return; }
+    if (isYT(item)) { toast('YouTube 영상 재생 화면에서 위치를 조절하세요.'); return; }
     else if (native) window.Android.seekTo(position);
     else if (browserElement && Number.isFinite(browserElement.duration)) browserElement.currentTime = position / 1000;
     updateLyricHighlight();
@@ -1604,7 +1617,7 @@
       }, 'folder'));
     }
     p.appendChild(button('파일 직접 추가', 'dialog-option', () => { closeModal(); importFiles(); }, 'plus'));
-    p.appendChild(button('Chrome에서 YouTube 로그인 · 재생', 'dialog-option', () => { closeModal(); openYouTubePage(''); }, 'youtube'));
+    p.appendChild(button('Chrome에서 YouTube 로그인', 'dialog-option', () => { closeModal(); openChromeYouTube('https://www.youtube.com/'); }, 'youtube'));
     p.appendChild(button('백업 내보내기 (플레이리스트·가사·즐겨찾기·YouTube)', 'dialog-option', () => {
       const json = buildBackup();
       if (has('shareText')) window.Android.shareText(json, 'Pulse Player 백업');

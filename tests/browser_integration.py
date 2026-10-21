@@ -18,7 +18,7 @@ setup_js=r'''(() => {
  window.Android={
   getLibrary:()=>JSON.stringify(audio),getCollections:()=>localStorage.getItem('test-collections')||'{"lists":[],"lyrics":{}}',
   saveCollections:x=>localStorage.setItem('test-collections',x),
-  getPreferences:()=>JSON.stringify({version:'1.3.5',lastId:'',shuffle:false,repeat:0,speed:1,lastScan:Date.now()}),
+  getPreferences:()=>JSON.stringify({version:'1.3.6',lastId:'',shuffle:false,repeat:0,speed:1,lastScan:Date.now()}),
   hasMediaPermission:()=>true,scanDevice:()=>{},requestState:()=>{},pauseAll:()=>window.calls.push(['pauseAll']),
   play:id=>window.calls.push(['play',id]),toggle:id=>window.calls.push(['toggle',id]),
   setOptions:()=>{},addYouTube:(id,title,author)=>{
@@ -28,6 +28,7 @@ setup_js=r'''(() => {
   toggleFavorite:id=>{
    const i=audio.find(x=>x.id===id);if(i){i.favorite=!i.favorite;window.calls.push(['favorite',id,i.favorite]);}
   },
+  deleteOriginal:id=>window.calls.push(['deleteOriginal',id]),
   openBrowser:(u,t)=>window.calls.push(['openBrowser',u,t]),
   openChrome:u=>window.calls.push(['chrome',u]),importFiles:()=>{},
   downloadDirectMedia:()=>{},getClipboard:()=>''
@@ -53,6 +54,19 @@ with sync_playwright() as playwright:
  page.evaluate("document.dispatchEvent(new Event('DOMContentLoaded'))")
  page.get_by_role('button',name='테스트 음악 재생').click()
  assert ['play','content://media/external/audio/media/42'] in page.evaluate('window.calls'), 'library playback must use play not stale toggle'
+ # Actual file delete is separate from hide and does NOT drop the library until OS approval.
+ page.get_by_role('button',name='라이브러리',exact=True).last.click()
+ page.get_by_role('button',name='테스트 음악 더보기').click()
+ assert page.get_by_role('button',name='라이브러리에서 숨기기 (파일은 그대로)').is_visible()
+ page.get_by_role('button',name='휴대폰 원본 파일 삭제').click()
+ assert ['deleteOriginal','content://media/external/audio/media/42'] in page.evaluate('window.calls')
+ assert page.get_by_role('button',name='테스트 음악 재생').count() == 1, 'file removed before native approval'
+ page.evaluate("window.onNativeFileDeleteFailed('파일 삭제를 취소했습니다.')")
+ assert page.get_by_role('button',name='테스트 음악 재생').count() == 1, 'cancel removed file'
+ # Native code calls deletion result only after OS confirms and file removal succeeds.
+ page.evaluate("""window.testLibrary.splice(window.testLibrary.findIndex(x=>x.name==='테스트 음악'),1);
+     window.onNativeFileDeleted('content://media/external/audio/media/42');""")
+ assert page.get_by_role('button',name='테스트 음악 재생').count() == 0, 'file remained after OS delete success'
  # Video play within the app, not Chrome; toolbar heart and playlist.
  page.get_by_role('button',name='YouTube',exact=True).last.click()
  page.get_by_role('button',name='테스트 유튜브 영상 재생').click()

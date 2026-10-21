@@ -1,6 +1,8 @@
 package com.pulse.player;
 
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.app.RecoverableSecurityException;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.ClipData;
@@ -19,6 +21,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.provider.DocumentsContract;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
@@ -46,6 +49,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -66,6 +70,9 @@ public final class MainActivity extends Activity {
     private static final String ASSET_ORIGIN = "https://appassets.androidplatform.net";
     private static final int REQUEST_IMPORT = 1001;
     private static final int REQUEST_MEDIA_PERMISSION = 1002;
+    private static final int REQUEST_DELETE_MEDIASTORE = 1003;
+    private static final int REQUEST_DELETE_RECOVERABLE = 1004;
+    private static final int REQUEST_DELETE_LEGACY_WRITE = 1005;
     private static final String START_URL = "https://appassets.androidplatform.net/assets/index.html";
     private static final Pattern YT_ID = Pattern.compile("^[A-Za-z0-9_-]{11}$");
     private FrameLayout browserFrame;
@@ -91,6 +98,7 @@ public final class MainActivity extends Activity {
     private String videoId = "";
     private String browserMode = "web";
     private String browserVideoId = "";
+    private String pendingDeleteId = "";
     private final Object libraryLock = new Object();
     private final ExecutorService metadataExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService netExecutor = Executors.newSingleThreadExecutor();
@@ -562,6 +570,18 @@ public final class MainActivity extends Activity {
     @Override // android.app.Activity
     public void onRequestPermissionsResult(int i, String[] strArr, int[] iArr) {
         super.onRequestPermissionsResult(i, strArr, iArr);
+        if (i == REQUEST_DELETE_LEGACY_WRITE) {
+            String id = pendingDeleteId;
+            pendingDeleteId = "";
+            if (id.isEmpty()) return;
+            if (iArr.length > 0 &&
+                iArr[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                deleteMediaUri(id, Uri.parse(id));
+            } else {
+                reportFileDeleteFailure("저장소 쓰기 권한이 없어 원본 파일을 삭제하지 않았습니다.");
+            }
+            return;
+        }
         if (i == REQUEST_MEDIA_PERMISSION) {
             boolean zHasMediaPermission = hasMediaPermission();
             boolean z = false;
@@ -766,7 +786,8 @@ public final class MainActivity extends Activity {
         intent.setType("*/*");
         intent.putExtra("android.intent.extra.MIME_TYPES", new String[]{"audio/*", "video/*"});
         intent.putExtra("android.intent.extra.ALLOW_MULTIPLE", true);
-        intent.addFlags(65);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         try {
             startActivityForResult(intent, REQUEST_IMPORT);
         } catch (Exception e) {
@@ -777,6 +798,21 @@ public final class MainActivity extends Activity {
     @Override // android.app.Activity
     protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
         super.onActivityResult(requestCode, resultCode, intent);
+        if (requestCode == REQUEST_DELETE_MEDIASTORE || requestCode == REQUEST_DELETE_RECOVERABLE) {
+            String id = pendingDeleteId;
+            pendingDeleteId = "";
+            if (id.isEmpty()) return;
+            if (resultCode != Activity.RESULT_OK) {
+                reportFileDeleteFailure("파일 삭제를 취소했습니다.");
+                return;
+            }
+            if (requestCode == REQUEST_DELETE_MEDIASTORE) {
+                finishOriginalDelete(id);
+            } else {
+                deleteMediaUri(id, Uri.parse(id));
+            }
+            return;
+        }
         if (requestCode != REQUEST_IMPORT || resultCode != Activity.RESULT_OK || intent == null) return;
         LinkedHashSet<Uri> selected = new LinkedHashSet<>();
         if (intent.getData() != null) selected.add(intent.getData());
@@ -788,11 +824,19 @@ public final class MainActivity extends Activity {
             }
         }
         if (selected.isEmpty()) return;
+        final int granted = intent.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION |
+            Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         for (Uri uri : selected) {
-            try {
-                getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            } catch (SecurityException ignored) {
-                // Some document providers supply a session grant rather than a persistable grant.
+            if (granted != 0) {
+                try {
+                    getContentResolver().takePersistableUriPermission(uri, granted);
+                } catch (SecurityException ignored) {
+                    // Some document providers do not grant persistable write access.
+                    try {
+                        getContentResolver().takePersistableUriPermission(uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    } catch (SecurityException ignoredAgain) { }
+                }
             }
         }
         final List<Uri> selectedUris = new ArrayList<>(selected);
@@ -828,6 +872,119 @@ public final class MainActivity extends Activity {
                     : count + "개 파일을 라이브러리에 추가했습니다.", Toast.LENGTH_SHORT).show();
             });
         });
+    }
+
+    // Explicit native confirmation is required: JavaScript bridges in Android
+    // WebView are visible to embedded frames as well as the app's own page.
+    private void confirmOriginalDelete(String id) {
+        if (!pendingDeleteId.isEmpty()) {
+            reportFileDeleteFailure("이전 파일 삭제 승인 절차를 먼저 완료해 주세요.");
+            return;
+        }
+        JSONObject entry = findTrack(id);
+        if (entry == null || !("device".equals(entry.optString("source")) ||
+            "import".equals(entry.optString("source")))) {
+            reportFileDeleteFailure("휴대폰에서 가져온 음악·동영상 파일만 원본 삭제할 수 있습니다.");
+            return;
+        }
+        Uri uri = Uri.parse(id);
+        if (!"content".equals(uri.getScheme())) {
+            reportFileDeleteFailure("이 파일의 저장 위치는 직접 삭제를 지원하지 않습니다.");
+            return;
+        }
+        String name = entry.optString("fileName", entry.optString("name", "선택한 파일"));
+        new AlertDialog.Builder(this)
+            .setTitle("휴대폰 원본 파일 삭제")
+            .setMessage("'" + name + "' 원본 파일을 휴대폰에서 삭제합니다. 앱 목록·플레이리스트에서도 제거되며 복구하기 어려울 수 있습니다. 삭제할까요?")
+            .setNegativeButton("취소", (dialog, which) -> { })
+            .setPositiveButton("원본 삭제", (dialog, which) -> performOriginalDelete(id, uri))
+            .show();
+    }
+
+    private void performOriginalDelete(String id, Uri uri) {
+        try {
+            if (DocumentsContract.isDocumentUri(this, uri)) {
+                // A picker document can only be deleted if its provider permits it.
+                metadataExecutor.execute(() -> {
+                    try {
+                        boolean deleted = DocumentsContract.deleteDocument(getContentResolver(), uri);
+                        runOnUiThread(() -> {
+                            if (deleted) finishOriginalDelete(id);
+                            else reportFileDeleteFailure("파일 제공자가 삭제를 허용하지 않습니다. 휴대폰 파일 앱에서 삭제해 주세요.");
+                        });
+                    } catch (Exception e) {
+                        runOnUiThread(() -> reportFileDeleteFailure(
+                            "이 문서는 직접 삭제할 권한이 없습니다. 휴대폰 파일 앱에서 삭제해 주세요."));
+                    }
+                });
+                return;
+            }
+            String authority = uri.getAuthority();
+            if (authority == null || !(authority.equals("media") ||
+                authority.equals("com.android.providers.media"))) {
+                reportFileDeleteFailure("지원하지 않는 저장소입니다. 휴대폰 파일 앱에서 삭제해 주세요.");
+                return;
+            }
+            if (Build.VERSION.SDK_INT >= 30) {
+                PendingIntent request = MediaStore.createDeleteRequest(getContentResolver(),
+                    Collections.singletonList(uri));
+                pendingDeleteId = id;
+                try {
+                    startIntentSenderForResult(request.getIntentSender(), REQUEST_DELETE_MEDIASTORE,
+                        null, 0, 0, 0);
+                } catch (Exception startError) {
+                    pendingDeleteId = "";
+                    reportFileDeleteFailure("시스템 파일 삭제 승인 화면을 열 수 없습니다.");
+                }
+                return;
+            }
+            if (Build.VERSION.SDK_INT < 29 &&
+                checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") !=
+                    android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                pendingDeleteId = id;
+                requestPermissions(new String[]{"android.permission.WRITE_EXTERNAL_STORAGE"},
+                    REQUEST_DELETE_LEGACY_WRITE);
+                return;
+            }
+            deleteMediaUri(id, uri);
+        } catch (Exception error) {
+            pendingDeleteId = "";
+            reportFileDeleteFailure("삭제를 시작할 수 없습니다. 파일 앱에서 다시 시도해 주세요.");
+        }
+    }
+
+    private void deleteMediaUri(String id, Uri uri) {
+        try {
+            int count = getContentResolver().delete(uri, null, null);
+            if (count > 0) finishOriginalDelete(id);
+            else reportFileDeleteFailure("파일이 삭제되지 않았습니다. 파일 앱에서 확인해 주세요.");
+        } catch (RecoverableSecurityException recoverable) {
+            if (Build.VERSION.SDK_INT >= 29) {
+                pendingDeleteId = id;
+                try {
+                    startIntentSenderForResult(recoverable.getUserAction().getActionIntent().getIntentSender(),
+                        REQUEST_DELETE_RECOVERABLE, null, 0, 0, 0);
+                } catch (Exception startError) {
+                    pendingDeleteId = "";
+                    reportFileDeleteFailure("파일 삭제 권한 승인 화면을 열 수 없습니다.");
+                }
+            } else {
+                reportFileDeleteFailure("원본 파일 삭제 권한이 없습니다.");
+            }
+        } catch (Exception error) {
+            reportFileDeleteFailure("휴대폰 저장소에서 삭제하지 못했습니다. 파일 앱에서 삭제해 주세요.");
+        }
+    }
+
+    private void finishOriginalDelete(String id) {
+        if (id == null || id.isEmpty()) return;
+        editTrack(id, true, false, true);
+        js("window.onNativeFileDeleted && window.onNativeFileDeleted(" + JSONObject.quote(id) + ");");
+    }
+
+    private void reportFileDeleteFailure(String message) {
+        js("window.onNativeFileDeleteFailed && window.onNativeFileDeleteFailed(" +
+            JSONObject.quote(message) + ");");
     }
 
     private JSONObject metadata(Uri uri) {
@@ -1050,6 +1207,10 @@ public final class MainActivity extends Activity {
 
     /* JADX INFO: Access modifiers changed from: private */
     public void editTrack(String str, boolean z, boolean z2) {
+        editTrack(str, z, z2, false);
+    }
+
+    private void editTrack(String str, boolean z, boolean z2, boolean deletedFromDevice) {
         boolean zEquals;
         boolean z3;
         synchronized (this.libraryLock) {
@@ -1085,7 +1246,7 @@ public final class MainActivity extends Activity {
                 if (z3) {
                     this.prefs.edit().putString("library", jSONArray2.toString()).apply();
                 }
-                if (z && zEquals) {
+                if (z && zEquals && !deletedFromDevice) {
                     Set<String> hidden = readHidden();
                     hidden.add(str);
                     writeHidden(hidden);
@@ -1109,8 +1270,14 @@ public final class MainActivity extends Activity {
                 }
                 if (!zEquals && str.startsWith("content://")) {
                     try {
-                        getContentResolver().releasePersistableUriPermission(Uri.parse(str), 1);
-                    } catch (Exception e4) {
+                        getContentResolver().releasePersistableUriPermission(Uri.parse(str),
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    } catch (Exception e4) { }
+                    if (deletedFromDevice) {
+                        try {
+                            getContentResolver().releasePersistableUriPermission(Uri.parse(str),
+                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                        } catch (Exception ignored) { }
                     }
                 }
             }
@@ -1376,6 +1543,13 @@ public final class MainActivity extends Activity {
                             MainActivity.this.openInChrome(string);
                             return true;
                         }
+                        // A video selected in YouTube's search results should play using
+                        // the app's embedded YouTube player, not redirect to Chrome.
+                        String videoId = MainActivity.extractYouTubeId(string);
+                        if (!videoId.isEmpty()) {
+                            MainActivity.this.openSelectedYouTubeVideo(videoId);
+                            return true;
+                        }
                         return false;
                     }
                     if (!string.startsWith("intent://")) {
@@ -1395,12 +1569,18 @@ public final class MainActivity extends Activity {
 
                 @Override // android.webkit.WebViewClient
                 public void doUpdateVisitedHistory(WebView webView, String str, boolean z) {
-                    MainActivity.this.updateBrowserState(str);
+                    // YouTube changes watch URLs via history.pushState; those never
+                    // trigger shouldOverrideUrlLoading on the same document.
+                    if (!MainActivity.this.maybeOpenSelectedYouTubeVideo(str)) {
+                        MainActivity.this.updateBrowserState(str);
+                    }
                 }
 
                 @Override // android.webkit.WebViewClient
                 public void onPageFinished(WebView webView, String str) {
-                    MainActivity.this.updateBrowserState(str);
+                    if (!MainActivity.this.maybeOpenSelectedYouTubeVideo(str)) {
+                        MainActivity.this.updateBrowserState(str);
+                    }
                 }
             });
             this.browserView.setWebChromeClient(new WebChromeClient() { // from class: com.pulse.player.MainActivity.22
@@ -1510,10 +1690,11 @@ public final class MainActivity extends Activity {
             if (str.startsWith("https://") || str.startsWith("http://")) {
                 Uri target = Uri.parse(str);
                 String host = target.getHost() == null ? "" : target.getHost().toLowerCase(Locale.ROOT);
-                if ("youtube".equals(str2) || host.equals("youtube.com") || host.endsWith(".youtube.com") || host.equals("youtu.be")) {
-                    closeBrowser();
-                    openInChrome(str);
-                    return;
+                // YouTube browsing and search stay inside this Activity. Only an explicit
+                // Chrome login or fallback button may launch the external browser.
+                if ("youtube".equals(str2) || host.equals("youtube.com") ||
+                    host.endsWith(".youtube.com") || host.equals("youtu.be")) {
+                    str2 = "youtube";
                 }
                 ensureBrowser();
                 if (str2 == null) {
@@ -1581,6 +1762,30 @@ public final class MainActivity extends Activity {
             this.browserPrimary.setEnabled(true);
             this.browserPrimary.setAlpha(1.0f);
         }
+    }
+
+    // Handle both ordinary link clicks and YouTube's single-page-app navigation.
+    private boolean maybeOpenSelectedYouTubeVideo(String url) {
+        if (!browserVisible || !"youtube".equals(browserMode)) return false;
+        String id = extractYouTubeId(url);
+        if (id.isEmpty()) return false;
+        openSelectedYouTubeVideo(id);
+        return true;
+    }
+
+    // Handles a click on a video in the native YouTube search/browser view.
+    private void openSelectedYouTubeVideo(String videoId) {
+        if (videoId == null || !YT_ID.matcher(videoId).matches()) return;
+        String title = this.browserView == null ? "" : this.browserView.getTitle();
+        if (title == null || title.trim().equalsIgnoreCase("YouTube")) title = "";
+        String saved = addYouTubeItem(videoId, title, "", false);
+        if (saved.isEmpty()) {
+            Toast.makeText(this, "YouTube 영상을 추가하지 못했습니다.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        closeBrowser();
+        pushLibrary();
+        js("window.onYouTubeAdded && window.onYouTubeAdded('yt:" + videoId + "', true);");
     }
 
     private void updateBrowserFavorite() {
@@ -1728,7 +1933,7 @@ public final class MainActivity extends Activity {
     }
 
     // Chrome shares its own Google account session. No Google API project,
-    // OAuth redirect server, API key, token storage or video iframe is used.
+    // OAuth redirect server, API key or token storage is used.
     private void openInChrome(String address) {
         if (address == null) return;
         Uri uri;
@@ -2005,6 +2210,11 @@ public final class MainActivity extends Activity {
                     MainActivity.this.editTrack(str, true, false);
                 }
             });
+        }
+
+        @JavascriptInterface
+        public void deleteOriginal(final String id) {
+            MainActivity.this.runOnUiThread(() -> MainActivity.this.confirmOriginalDelete(id));
         }
 
         @JavascriptInterface

@@ -36,9 +36,31 @@ assert.match(java,/if \(host\.equals\("accounts\.google\.com"\)/);
 assert.doesNotMatch(java,/if \(host\.equals\("youtube\.com"\) \|\| host\.endsWith\("\.youtube\.com"\) \|\|/);
 assert.doesNotMatch(js+html,/ytClientDialog|ytKeyDialog|OAuth 클라이언트 ID 입력|ytDock/);
 assert.doesNotMatch(manifest,/YouTubePlaybackService/);
-assert.match(build,/versionCode 135/);
-assert.match(build,/versionName '1\.3\.5'/);
+assert.match(build,/versionCode 136/);
+assert.match(build,/versionName '1\.3\.6'/);
 const ids=new Set([...html.matchAll(/\bid="([A-Za-z][\w-]+)"/g)].map(x=>x[1]));
 for(const match of js.matchAll(/\bel\(['"]([\w-]+)['"]\)/g)) assert(ids.has(match[1]), 'Missing HTML node '+match[1]);
 assert.match(css,/body\.yt-inline-open \.mini-player\{display:none!important\}/);
-console.log('PASS: source contracts: local playback lookup, YouTube in-app/favorites, preserved features');
+
+// Native YouTube browser must not force Chrome on YouTube URL or on SPA navigation.
+const browse = java.match(/public void openBrowser\(String str, String str2\) \{([\s\S]*?)\n    \}/);
+assert(browse,'native browser handler not found');
+assert.match(browse[1],/str2 = "youtube";/);
+assert.doesNotMatch(browse[1],/openInChrome\(str\)/);
+assert.match(java,/maybeOpenSelectedYouTubeVideo\(str\)/);
+assert.match(java,/openSelectedYouTubeVideo\(videoId\)/);
+assert.match(js,/function renderYtAccount\(\)/);
+assert.doesNotMatch(js,/앱에서 YouTube 영상 재생·즐겨찾기 가능/);
+assert.doesNotMatch(html,/id="ytNote"/);
+// Deletion must preserve separate hide and actual device removal actions.
+assert.match(js,/휴대폰 원본 파일 삭제/);
+assert.match(js,/window\.Android\.deleteOriginal\(id\)/);
+assert.match(js,/window\.onNativeFileDeleted = id =>/);
+assert.match(js,/window\.onNativeFileDeleteFailed = message =>/);
+assert.match(java,/new AlertDialog\.Builder\(this\)[\s\S]{0,500}\.setTitle\("휴대폰 원본 파일 삭제"\)/);
+assert.match(java,/MediaStore\.createDeleteRequest\(getContentResolver\(\)/);
+assert.match(java,/DocumentsContract\.deleteDocument\(getContentResolver\(\), uri\)/);
+assert.match(java,/REQUEST_DELETE_MEDIASTORE/);
+assert.match(java,/editTrack\(id, true, false, true\)/);
+assert.match(manifest,/WRITE_EXTERNAL_STORAGE.*maxSdkVersion="28"/);
+console.log('PASS: playback, native YouTube routing, compact labels, safe device media deletion');
