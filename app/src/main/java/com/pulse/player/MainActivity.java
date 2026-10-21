@@ -607,7 +607,7 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
                 jsOnUi("window.onDeviceScan && window.onDeviceScan({state:'start'});");
                 this.metadataExecutor.execute(new Runnable() { // from class: com.pulse.player.MainActivity.11
                     @Override // java.lang.Runnable
-                    public void run() throws Throwable {
+                    public void run() {
                         int[] iArrScanDeviceNow = {0, 0, 0};
                         try {
                             iArrScanDeviceNow = MainActivity.this.scanDeviceNow();
@@ -631,237 +631,143 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
         }
     }
 
-    /* JADX INFO: Access modifiers changed from: private */
-    public int[] scanDeviceNow() throws Throwable {
-        int i;
-        ArrayList arrayList = new ArrayList();
-        int iQueryStore = queryStore(false, arrayList);
-        int iQueryStore2 = queryStore(true, arrayList);
-        int i2 = 0;
-        synchronized (this.libraryLock) {
+    // Preserve custom playlists, YouTube entries and favorites across library rescans.
+    private int[] scanDeviceNow() {
+        List<JSONObject> scanned = new ArrayList<>();
+        int audioCount = queryStore(false, scanned);
+        int videoCount = queryStore(true, scanned);
+        synchronized (libraryLock) {
             try {
-                JSONArray jSONArray = new JSONArray(readLibrary());
+                JSONArray existing = new JSONArray(readLibrary());
                 Set<String> hidden = readHidden();
-                HashMap map = new HashMap();
-                HashSet hashSet = new HashSet();
-                JSONArray jSONArray2 = new JSONArray();
-                for (int i3 = 0; i3 < jSONArray.length(); i3++) {
-                    JSONObject jSONObjectOptJSONObject = jSONArray.optJSONObject(i3);
-                    if (jSONObjectOptJSONObject != null) {
-                        if ("device".equals(jSONObjectOptJSONObject.optString("source"))) {
-                            map.put(jSONObjectOptJSONObject.optString("id"), jSONObjectOptJSONObject);
-                        } else {
-                            jSONArray2.put(jSONObjectOptJSONObject);
-                            if (!"youtube".equals(jSONObjectOptJSONObject.optString("type"))) {
-                                hashSet.add(jSONObjectOptJSONObject.optString("fileName") + "|" + jSONObjectOptJSONObject.optLong("size"));
-                            }
+                HashMap<String, JSONObject> oldDevice = new HashMap<>();
+                Set<String> customFileKeys = new HashSet<>();
+                JSONArray updated = new JSONArray();
+                for (int i = 0; i < existing.length(); i++) {
+                    JSONObject entry = existing.optJSONObject(i);
+                    if (entry == null) continue;
+                    if ("device".equals(entry.optString("source"))) {
+                        oldDevice.put(entry.optString("id"), entry);
+                    } else {
+                        updated.put(entry);
+                        if (!"youtube".equals(entry.optString("type"))) {
+                            customFileKeys.add(entry.optString("fileName") + "|" + entry.optLong("size"));
                         }
                     }
                 }
-                int i4 = 0;
-                for (JSONObject jSONObject : arrayList) {
-                    try {
-                        String strOptString = jSONObject.optString("id");
-                        if (!hidden.contains(strOptString) && !hashSet.contains(jSONObject.optString("fileName") + "|" + jSONObject.optLong("size"))) {
-                            JSONObject jSONObject2 = (JSONObject) map.get(strOptString);
-                            if (jSONObject2 != null) {
-                                jSONObject.put("favorite", jSONObject2.optBoolean("favorite"));
-                                i = i4;
-                            } else {
-                                i = i4 + 1;
-                            }
-                            try {
-                                jSONArray2.put(jSONObject);
-                                i4 = i;
-                            } catch (Exception e) {
-                                i2 = i;
-                                i4 = i2;
-                                return new int[]{iQueryStore, iQueryStore2, i4};
-                            }
-                        }
-                    } catch (Exception e2) {
-                        i2 = i4;
+                int added = 0;
+                for (JSONObject item : scanned) {
+                    String id = item.optString("id");
+                    if (hidden.contains(id) || customFileKeys.contains(item.optString("fileName") + "|" + item.optLong("size"))) continue;
+                    JSONObject old = oldDevice.get(id);
+                    if (old != null) {
+                        item.put("favorite", old.optBoolean("favorite", false));
+                    } else {
+                        added++;
                     }
+                    updated.put(item);
                 }
-                if (!arrayList.isEmpty() || map.isEmpty() || hasMediaPermission()) {
-                    this.prefs.edit().putString("library", jSONArray2.toString()).apply();
-                    return new int[]{iQueryStore, iQueryStore2, i4};
+                // Do not erase a previously scanned library following temporary permission loss.
+                if (hasMediaPermission() || !scanned.isEmpty() || oldDevice.isEmpty()) {
+                    prefs.edit().putString("library", updated.toString()).apply();
+                    return new int[]{audioCount, videoCount, added};
                 }
-                return new int[]{0, 0, 0};
-            } catch (Exception e3) {
+            } catch (Exception ignored) {
             }
         }
+        return new int[]{audioCount, videoCount, 0};
     }
 
-    /* JADX WARN: Code duplicated, block: B:117:0x02c8  */
-    /* JADX WARN: Code duplicated, block: B:121:0x02d1  */
-    /* JADX WARN: Code duplicated, block: B:150:? A[RETURN, SYNTHETIC] */
-    private int queryStore(boolean z, List<JSONObject> list) throws Throwable {
-        int i;
-        Cursor cursor;
-        Cursor cursorQuery;
-        Object obj;
-        Object obj2;
-        String str;
-        int iLastIndexOf;
-        Uri uri = z ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
-        ArrayList arrayList = new ArrayList();
-        arrayList.add("_id");
-        arrayList.add("title");
-        arrayList.add("_display_name");
-        arrayList.add("_size");
-        arrayList.add("duration");
-        arrayList.add("date_added");
-        arrayList.add("date_modified");
-        arrayList.add("mime_type");
-        if (!z) {
-            arrayList.add("artist");
-            arrayList.add("album");
+    private int queryStore(boolean video, List<JSONObject> output) {
+        Uri baseUri = video ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+        List<String> projection = new ArrayList<>();
+        String[] core = {"_id", "title", "_display_name", "_size", "duration", "date_added", "date_modified", "mime_type"};
+        java.util.Collections.addAll(projection, core);
+        if (!video) {
+            projection.add("artist");
+            projection.add("album");
         }
         if (Build.VERSION.SDK_INT >= 29) {
-            arrayList.add("relative_path");
-            arrayList.add("bucket_display_name");
+            projection.add("relative_path");
+            projection.add("bucket_display_name");
         } else {
-            arrayList.add("_data");
-            if (z) {
-                arrayList.add("bucket_display_name");
-            }
+            projection.add("_data");
+            if (video) projection.add("bucket_display_name");
         }
+        String[] columns = projection.toArray(new String[0]);
+        Cursor cursor = null;
         try {
             try {
-                cursorQuery = getContentResolver().query(uri, (String[]) arrayList.toArray(new String[0]), z ? null : "is_alarm = 0 AND is_notification = 0 AND is_ringtone = 0", null, "date_added DESC");
-            } catch (Throwable th) {
-                th = th;
-                cursorQuery = null;
-                if (cursorQuery != null) {
-                    cursorQuery.close();
-                }
-                throw th;
+                cursor = getContentResolver().query(baseUri, columns,
+                    video ? null : "is_alarm = 0 AND is_notification = 0 AND is_ringtone = 0",
+                    null, "date_added DESC");
+            } catch (Exception e) {
+                cursor = getContentResolver().query(baseUri, columns, null, null, null);
             }
-        } catch (Exception e) {
-            try {
-                cursorQuery = getContentResolver().query(uri, (String[]) arrayList.toArray(new String[0]), null, null, null);
-            } catch (Exception e2) {
-                i = 0;
-                cursor = null;
-                if (cursor != null) {
-                    return i;
-                }
-                cursor.close();
-                return i;
-            }
-        }
-        if (cursorQuery == null) {
-            if (cursorQuery == null) {
-                return 0;
-            }
-            cursorQuery.close();
-            return 0;
-        }
-        try {
-            try {
-                int columnIndex = cursorQuery.getColumnIndex("_id");
-                int columnIndex2 = cursorQuery.getColumnIndex("title");
-                int columnIndex3 = cursorQuery.getColumnIndex("_display_name");
-                int columnIndex4 = cursorQuery.getColumnIndex("_size");
-                int columnIndex5 = cursorQuery.getColumnIndex("duration");
-                int columnIndex6 = cursorQuery.getColumnIndex("date_added");
-                int columnIndex7 = cursorQuery.getColumnIndex("date_modified");
-                int columnIndex8 = cursorQuery.getColumnIndex("artist");
-                int columnIndex9 = cursorQuery.getColumnIndex("album");
-                int columnIndex10 = cursorQuery.getColumnIndex("relative_path");
-                int columnIndex11 = cursorQuery.getColumnIndex("bucket_display_name");
-                int columnIndex12 = cursorQuery.getColumnIndex("_data");
-                int i2 = 0;
-                while (cursorQuery.moveToNext() && i2 < 20000) {
-                    try {
-                        long j = cursorQuery.getLong(columnIndex);
-                        String str2 = str(cursorQuery, columnIndex3);
-                        long j2 = (columnIndex5 < 0 || cursorQuery.isNull(columnIndex5)) ? 0L : cursorQuery.getLong(columnIndex5);
-                        if (z || j2 <= 0 || j2 >= 3000) {
-                            String str3 = str(cursorQuery, columnIndex2);
-                            if (str3.isEmpty()) {
-                                str3 = str2.replaceFirst("(?i)\\.[^/.]+$", "");
-                            }
-                            if (str3.isEmpty()) {
-                                obj = z ? "동영상" : "음악";
-                            } else {
-                                obj = str3;
-                            }
-                            String str4 = str(cursorQuery, columnIndex8);
-                            if (str4.isEmpty() || "<unknown>".equalsIgnoreCase(str4)) {
-                                str4 = "";
-                            }
-                            String str5 = str(cursorQuery, columnIndex11);
-                            if (str5.isEmpty() && columnIndex10 >= 0) {
-                                String strReplaceAll = str(cursorQuery, columnIndex10).replaceAll("/+$", "");
-                                if (strReplaceAll.contains("/")) {
-                                    strReplaceAll = strReplaceAll.substring(strReplaceAll.lastIndexOf(47) + 1);
-                                }
-                                str5 = strReplaceAll;
-                            }
-                            if (str5.isEmpty() && columnIndex12 >= 0 && (iLastIndexOf = (str = str(cursorQuery, columnIndex12)).lastIndexOf(47)) > 0) {
-                                String strSubstring = str.substring(0, iLastIndexOf);
-                                str5 = strSubstring.substring(strSubstring.lastIndexOf(47) + 1);
-                            }
-                            long j3 = (columnIndex6 < 0 || cursorQuery.isNull(columnIndex6)) ? 0L : cursorQuery.getLong(columnIndex6);
-                            long j4 = (columnIndex7 < 0 || cursorQuery.isNull(columnIndex7)) ? 0L : cursorQuery.getLong(columnIndex7);
-                            if (j3 <= 0) {
-                                j3 = j4;
-                            }
-                            long jCurrentTimeMillis = j3 * 1000;
-                            JSONObject jSONObject = new JSONObject();
-                            jSONObject.put("id", Uri.withAppendedPath(uri, String.valueOf(j)).toString());
-                            jSONObject.put("name", obj);
-                            jSONObject.put("fileName", str2);
-                            if (!str4.isEmpty()) {
-                                obj2 = str4;
-                            } else if (str5.isEmpty()) {
-                                obj2 = z ? "내 영상" : "내 음악";
-                            } else {
-                                obj2 = str5;
-                            }
-                            jSONObject.put("artist", obj2);
-                            jSONObject.put("album", str(cursorQuery, columnIndex9).equalsIgnoreCase("<unknown>") ? "" : str(cursorQuery, columnIndex9));
-                            jSONObject.put("folder", str5);
-                            jSONObject.put("type", z ? "video" : "audio");
-                            jSONObject.put("duration", j2);
-                            jSONObject.put("size", (columnIndex4 < 0 || cursorQuery.isNull(columnIndex4)) ? 0L : cursorQuery.getLong(columnIndex4));
-                            jSONObject.put("favorite", false);
-                            if (jCurrentTimeMillis <= 0) {
-                                jCurrentTimeMillis = System.currentTimeMillis();
-                            }
-                            jSONObject.put("addedAt", jCurrentTimeMillis);
-                            jSONObject.put("modifiedAt", 1000 * j4);
-                            jSONObject.put("source", "device");
-                            list.add(jSONObject);
-                            i2++;
-                        }
-                    } catch (Exception e3) {
-                        i = i2;
-                        cursor = cursorQuery;
-                        if (cursor != null) {
-                            return i;
-                        }
-                        cursor.close();
-                        return i;
+            if (cursor == null) return 0;
+            int idCol = cursor.getColumnIndex("_id");
+            int titleCol = cursor.getColumnIndex("title");
+            int fileCol = cursor.getColumnIndex("_display_name");
+            int sizeCol = cursor.getColumnIndex("_size");
+            int durationCol = cursor.getColumnIndex("duration");
+            int addedCol = cursor.getColumnIndex("date_added");
+            int changedCol = cursor.getColumnIndex("date_modified");
+            int artistCol = cursor.getColumnIndex("artist");
+            int albumCol = cursor.getColumnIndex("album");
+            int pathCol = cursor.getColumnIndex("relative_path");
+            int bucketCol = cursor.getColumnIndex("bucket_display_name");
+            int legacyPathCol = cursor.getColumnIndex("_data");
+            int count = 0;
+            while (cursor.moveToNext() && count < 20000) {
+                try {
+                    if (idCol < 0 || cursor.isNull(idCol)) continue;
+                    long duration = durationCol < 0 || cursor.isNull(durationCol) ? 0 : cursor.getLong(durationCol);
+                    if (!video && duration > 0 && duration < 3000) continue;
+                    long itemId = cursor.getLong(idCol);
+                    String filename = str(cursor, fileCol);
+                    String title = str(cursor, titleCol);
+                    if (title.isEmpty()) title = filename.replaceFirst("(?i)\\.[^/.]+$", "");
+                    if (title.isEmpty()) title = video ? "동영상" : "음악";
+                    String artist = str(cursor, artistCol);
+                    if ("<unknown>".equalsIgnoreCase(artist)) artist = "";
+                    String folder = str(cursor, bucketCol);
+                    if (folder.isEmpty()) {
+                        String path = str(cursor, pathCol).replaceAll("/+$", "");
+                        if (path.isEmpty()) path = str(cursor, legacyPathCol);
+                        int slash = path.lastIndexOf('/');
+                        folder = slash >= 0 ? path.substring(0, slash) : path;
+                        int sub = folder.lastIndexOf('/');
+                        if (sub >= 0) folder = folder.substring(sub + 1);
                     }
+                    if (artist.isEmpty()) artist = folder.isEmpty() ? (video ? "내 영상" : "내 음악") : folder;
+                    long added = addedCol < 0 || cursor.isNull(addedCol) ? 0 : cursor.getLong(addedCol);
+                    long modified = changedCol < 0 || cursor.isNull(changedCol) ? 0 : cursor.getLong(changedCol);
+                    JSONObject item = new JSONObject();
+                    item.put("id", Uri.withAppendedPath(baseUri, String.valueOf(itemId)).toString());
+                    item.put("name", title);
+                    item.put("fileName", filename);
+                    item.put("artist", artist);
+                    String album = str(cursor, albumCol);
+                    item.put("album", "<unknown>".equalsIgnoreCase(album) ? "" : album);
+                    item.put("folder", folder);
+                    item.put("type", video ? "video" : "audio");
+                    item.put("duration", duration);
+                    item.put("size", sizeCol < 0 || cursor.isNull(sizeCol) ? 0L : cursor.getLong(sizeCol));
+                    item.put("favorite", false);
+                    item.put("addedAt", added > 0 ? 1000L * added : (modified > 0 ? 1000L * modified : System.currentTimeMillis()));
+                    item.put("modifiedAt", 1000L * modified);
+                    item.put("source", "device");
+                    output.add(item);
+                    count++;
+                } catch (Exception ignored) {
+                    // Malformed metadata must not prevent scanning remaining media.
                 }
-                if (cursorQuery == null) {
-                    return i2;
-                }
-                cursorQuery.close();
-                return i2;
-            } catch (Throwable th2) {
-                th = th2;
-                if (cursorQuery != null) {
-                    cursorQuery.close();
-                }
-                throw th;
             }
-        } catch (Exception e4) {
-            i = 0;
-            cursor = cursorQuery;
+            return count;
+        } catch (Exception e) {
+            return 0;
+        } finally {
+            if (cursor != null) cursor.close();
         }
     }
 
@@ -886,217 +792,117 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
     }
 
     @Override // android.app.Activity
-    protected void onActivityResult(int i, int i2, Intent intent) {
-        super.onActivityResult(i, i2, intent);
-        if (i == REQUEST_IMPORT && i2 == -1 && intent != null) {
-            LinkedHashSet linkedHashSet = new LinkedHashSet();
-            if (intent.getData() != null) {
-                linkedHashSet.add(intent.getData());
-            }
-            ClipData clipData = intent.getClipData();
-            if (clipData != null) {
-                for (int i3 = 0; i3 < clipData.getItemCount(); i3++) {
-                    Uri uri = clipData.getItemAt(i3).getUri();
-                    if (uri != null) {
-                        linkedHashSet.add(uri);
-                    }
-                }
-            }
-            if (!linkedHashSet.isEmpty()) {
-                final ArrayList arrayList = new ArrayList(linkedHashSet);
-                Iterator it = arrayList.iterator();
-                while (it.hasNext()) {
-                    try {
-                        getContentResolver().takePersistableUriPermission((Uri) it.next(), 1);
-                    } catch (SecurityException e) {
-                    }
-                }
-                this.metadataExecutor.execute(new Runnable() { // from class: com.pulse.player.MainActivity.12
-                    @Override // java.lang.Runnable
-                    public void run() {
-                        int i4;
-                        final int i5 = 0;
-                        synchronized (MainActivity.this.libraryLock) {
-                            try {
-                                JSONArray jSONArray = new JSONArray(MainActivity.this.readLibrary());
-                                HashSet hashSet = new HashSet();
-                                for (int i6 = 0; i6 < jSONArray.length(); i6++) {
-                                    JSONObject jSONObjectOptJSONObject = jSONArray.optJSONObject(i6);
-                                    if (jSONObjectOptJSONObject != null) {
-                                        hashSet.add(jSONObjectOptJSONObject.optString("id"));
-                                    }
-                                }
-                                for (Uri uri2 : arrayList) {
-                                    String string = uri2.toString();
-                                    if (!hashSet.contains(string)) {
-                                        JSONObject jSONObjectMetadata = MainActivity.this.metadata(uri2);
-                                        if (jSONObjectMetadata != null) {
-                                            jSONArray.put(jSONObjectMetadata);
-                                            hashSet.add(string);
-                                            i4 = i5 + 1;
-                                        } else {
-                                            i4 = i5;
-                                        }
-                                        i5 = i4;
-                                    }
-                                }
-                                MainActivity.this.prefs.edit().putString("library", jSONArray.toString()).apply();
-                            } catch (Exception e2) {
-                            }
-                        }
-                        MainActivity.this.runOnUiThread(new Runnable() { // from class: com.pulse.player.MainActivity.12.1
-                            @Override // java.lang.Runnable
-                            public void run() {
-                                MainActivity.this.pushLibrary();
-                                Toast.makeText(MainActivity.this, i5 == 0 ? "새로 추가할 파일이 없습니다." : i5 + "개 파일을 라이브러리에 추가했습니다.", 0).show();
-                            }
-                        });
-                    }
-                });
+    protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
+        super.onActivityResult(requestCode, resultCode, intent);
+        if (requestCode != REQUEST_IMPORT || resultCode != Activity.RESULT_OK || intent == null) return;
+        LinkedHashSet<Uri> selected = new LinkedHashSet<>();
+        if (intent.getData() != null) selected.add(intent.getData());
+        ClipData clips = intent.getClipData();
+        if (clips != null) {
+            for (int i = 0; i < clips.getItemCount(); i++) {
+                Uri uri = clips.getItemAt(i).getUri();
+                if (uri != null) selected.add(uri);
             }
         }
+        if (selected.isEmpty()) return;
+        for (Uri uri : selected) {
+            try {
+                getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (SecurityException ignored) {
+                // Some document providers supply a session grant rather than a persistable grant.
+            }
+        }
+        final List<Uri> selectedUris = new ArrayList<>(selected);
+        metadataExecutor.execute(() -> {
+            int added = 0;
+            synchronized (libraryLock) {
+                try {
+                    JSONArray library = new JSONArray(readLibrary());
+                    HashSet<String> known = new HashSet<>();
+                    for (int i = 0; i < library.length(); i++) {
+                        JSONObject item = library.optJSONObject(i);
+                        if (item != null) known.add(item.optString("id"));
+                    }
+                    for (Uri uri : selectedUris) {
+                        String id = uri.toString();
+                        if (known.contains(id)) continue;
+                        JSONObject metadata = metadata(uri);
+                        if (metadata != null) {
+                            library.put(metadata);
+                            known.add(id);
+                            added++;
+                        }
+                    }
+                    prefs.edit().putString("library", library.toString()).apply();
+                } catch (Exception ignored) {
+                }
+            }
+            final int count = added;
+            runOnUiThread(() -> {
+                pushLibrary();
+                Toast.makeText(MainActivity.this, count == 0
+                    ? "새로 추가할 파일이 없습니다."
+                    : count + "개 파일을 라이브러리에 추가했습니다.", Toast.LENGTH_SHORT).show();
+            });
+        });
     }
 
-    /* JADX INFO: Access modifiers changed from: private */
-    /* JADX WARN: Code duplicated, block: B:102:0x0175  */
-    /* JADX WARN: Code duplicated, block: B:104:0x017b  */
-    public JSONObject metadata(Uri uri) throws Throwable {
-        Throwable th;
-        Cursor cursorQuery;
-        String string;
-        long j;
-        String str;
-        String type;
-        long j2;
-        long j3;
-        Cursor cursor = null;
+    private JSONObject metadata(Uri uri) {
+        String filename = "미디어 파일";
+        long size = 0L;
+        try (Cursor cursor = getContentResolver().query(uri,
+                new String[]{"_display_name", "_size"}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int fileColumn = cursor.getColumnIndex("_display_name");
+                int sizeColumn = cursor.getColumnIndex("_size");
+                if (fileColumn >= 0 && !cursor.isNull(fileColumn)) filename = cursor.getString(fileColumn);
+                if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) size = cursor.getLong(sizeColumn);
+            }
+        } catch (Exception ignored) {
+        }
+        if (filename == null || filename.isBlank()) filename = "미디어 파일";
+        String contentType = "";
         try {
-            cursorQuery = getContentResolver().query(uri, new String[]{"_display_name", "_size"}, null, null, null);
-            if (cursorQuery == null) {
-                j3 = 0;
-                string = "미디어 파일";
-            } else {
-                try {
-                    try {
-                        if (!cursorQuery.moveToFirst()) {
-                            j3 = 0;
-                            string = "미디어 파일";
-                        } else {
-                            int columnIndex = cursorQuery.getColumnIndex("_display_name");
-                            int columnIndex2 = cursorQuery.getColumnIndex("_size");
-                            string = (columnIndex < 0 || cursorQuery.isNull(columnIndex)) ? "미디어 파일" : cursorQuery.getString(columnIndex);
-                            if (columnIndex2 >= 0) {
-                                try {
-                                    if (cursorQuery.isNull(columnIndex2)) {
-                                        j3 = 0;
-                                    } else {
-                                        j3 = cursorQuery.getLong(columnIndex2);
-                                    }
-                                } catch (Exception e) {
-                                    if (cursorQuery != null) {
-                                        cursorQuery.close();
-                                        j = 0;
-                                        str = string;
-                                    } else {
-                                        j = 0;
-                                        str = string;
-                                    }
-                                }
-                            } else {
-                                j3 = 0;
-                            }
-                        }
-                    } catch (Throwable th2) {
-                        th = th2;
-                        cursor = cursorQuery;
-                        if (cursor != null) {
-                            cursor.close();
-                            throw th;
-                        }
-                        throw th;
-                    }
-                } catch (Exception e2) {
-                    string = "미디어 파일";
-                }
-            }
-            if (cursorQuery != null) {
-                cursorQuery.close();
-                j = j3;
-                str = string;
-            } else {
-                j = j3;
-                str = string;
-            }
-        } catch (Exception e3) {
-            cursorQuery = null;
-            string = "미디어 파일";
-        } catch (Throwable th3) {
-            th = th3;
+            contentType = getContentResolver().getType(uri);
+        } catch (Exception ignored) {
+        }
+        String mime = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
+        String lowerName = filename.toLowerCase(Locale.ROOT);
+        boolean video = mime.startsWith("video/") || lowerName.matches(".*\\.(mp4|m4v|mkv|webm|3gp|mov|avi)$");
+        boolean audio = mime.startsWith("audio/") || lowerName.matches(".*\\.(mp3|m4a|aac|wav|flac|ogg|opus|wma|amr)$");
+        if (!audio && !video) return null;
+        String title = filename.replaceFirst("(?i)\\.[^/.]+$", "");
+        String artist = video ? "내 영상" : "내 음악";
+        long duration = 0L;
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(this, uri);
+            String length = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+            if (length != null) duration = Long.parseLong(length);
+            String mediaTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+            String mediaArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+            if (mediaTitle != null && !mediaTitle.isBlank()) title = mediaTitle.trim();
+            if (mediaArtist != null && !mediaArtist.isBlank()) artist = mediaArtist.trim();
+        } catch (Exception ignored) {
+        } finally {
+            try { retriever.release(); } catch (Exception ignored) {}
         }
         try {
-            type = getContentResolver().getType(uri);
-        } catch (Exception e4) {
-            type = "";
-        }
-        String lowerCase = type == null ? "" : type.toLowerCase(Locale.ROOT);
-        String lowerCase2 = str.toLowerCase(Locale.ROOT);
-        boolean z = lowerCase.startsWith("video/") || lowerCase2.matches(".*\\.(mp4|m4v|mkv|webm|3gp|mov|avi)$");
-        boolean z2 = lowerCase.startsWith("audio/") || lowerCase2.matches(".*\\.(mp3|m4a|aac|wav|flac|ogg|opus|wma|amr)$");
-        if (!z && !z2) {
+            JSONObject item = new JSONObject();
+            item.put("id", uri.toString());
+            item.put("name", title);
+            item.put("fileName", filename);
+            item.put("artist", artist);
+            item.put("type", video ? "video" : "audio");
+            item.put("duration", duration);
+            item.put("size", size);
+            item.put("favorite", false);
+            item.put("addedAt", System.currentTimeMillis());
+            item.put("source", "import");
+            return item;
+        } catch (Exception ignored) {
             return null;
         }
-        String strReplaceFirst = str.replaceFirst("(?i)\\.[^/.]+$", "");
-        String strTrim = z ? "내 영상" : "내 음악";
-        MediaMetadataRetriever mediaMetadataRetriever = new MediaMetadataRetriever();
-        try {
-            try {
-                mediaMetadataRetriever.setDataSource(this, uri);
-                String strExtractMetadata = mediaMetadataRetriever.extractMetadata(9);
-                j2 = strExtractMetadata != null ? Long.parseLong(strExtractMetadata) : 0L;
-                try {
-                    String strExtractMetadata2 = mediaMetadataRetriever.extractMetadata(7);
-                    String strExtractMetadata3 = mediaMetadataRetriever.extractMetadata(2);
-                    if (strExtractMetadata2 != null && !strExtractMetadata2.trim().isEmpty()) {
-                        strReplaceFirst = strExtractMetadata2.trim();
-                    }
-                    if (strExtractMetadata3 != null && !strExtractMetadata3.trim().isEmpty()) {
-                        strTrim = strExtractMetadata3.trim();
-                    }
-                    try {
-                        mediaMetadataRetriever.release();
-                    } catch (Exception e5) {
-                    }
-                } catch (Exception e6) {
-                    try {
-                        mediaMetadataRetriever.release();
-                    } catch (Exception e7) {
-                    }
-                }
-            } catch (Throwable th4) {
-                try {
-                    mediaMetadataRetriever.release();
-                } catch (Exception e8) {
-                }
-                throw th4;
-            }
-        } catch (Exception e9) {
-            j2 = 0;
-        }
-        JSONObject jSONObject = new JSONObject();
-        try {
-            jSONObject.put("id", uri.toString());
-            jSONObject.put("name", strReplaceFirst);
-            jSONObject.put("fileName", str);
-            jSONObject.put("artist", strTrim);
-            jSONObject.put("type", z ? "video" : "audio");
-            jSONObject.put("duration", j2);
-            jSONObject.put("size", j);
-            jSONObject.put("favorite", false);
-            jSONObject.put("addedAt", System.currentTimeMillis());
-            jSONObject.put("source", "import");
-        } catch (Exception e10) {
-        }
-        return jSONObject;
     }
 
     static String extractYouTubeId(String str) {
@@ -2301,7 +2107,7 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
     public void ytApiCall(final String str, final String str2) {
         this.apiExecutor.execute(new Runnable() { // from class: com.pulse.player.MainActivity.28
             @Override // java.lang.Runnable
-            public void run() throws Throwable {
+            public void run() {
                 String str3;
                 String string;
                 boolean z = false;
@@ -2804,7 +2610,7 @@ public final class MainActivity extends Activity implements YouTubePlaybackServi
             if (!string.isEmpty()) {
                 MainActivity.this.netExecutor.execute(new Runnable() { // from class: com.pulse.player.MainActivity.PlayerBridge.23
                     @Override // java.lang.Runnable
-                    public void run() throws Throwable {
+                    public void run() {
                         MainActivity.http("POST", "https://oauth2.googleapis.com/revoke", "token=" + MainActivity.enc(string), null);
                     }
                 });

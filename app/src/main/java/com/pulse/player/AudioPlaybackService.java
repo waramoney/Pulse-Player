@@ -273,19 +273,19 @@ public final class AudioPlaybackService extends Service implements AudioManager.
             this.player.setOnPreparedListener(new MediaPlayer.OnPreparedListener() { // from class: com.pulse.player.AudioPlaybackService$$ExternalSyntheticLambda0
                 @Override // android.media.MediaPlayer.OnPreparedListener
                 public final void onPrepared(MediaPlayer mediaPlayer) {
-                    this.f$0.lambda$playTrack$0(mediaPlayer);
+                    AudioPlaybackService.this.lambda$playTrack$0(mediaPlayer);
                 }
             });
             this.player.setOnCompletionListener(new MediaPlayer.OnCompletionListener() { // from class: com.pulse.player.AudioPlaybackService$$ExternalSyntheticLambda1
                 @Override // android.media.MediaPlayer.OnCompletionListener
                 public final void onCompletion(MediaPlayer mediaPlayer) {
-                    this.f$0.lambda$playTrack$1(mediaPlayer);
+                    AudioPlaybackService.this.lambda$playTrack$1(mediaPlayer);
                 }
             });
             this.player.setOnErrorListener(new MediaPlayer.OnErrorListener() { // from class: com.pulse.player.AudioPlaybackService$$ExternalSyntheticLambda2
                 @Override // android.media.MediaPlayer.OnErrorListener
                 public final boolean onError(MediaPlayer mediaPlayer, int i, int i2) {
-                    return this.f$0.lambda$playTrack$2(mediaPlayer, i, i2);
+                    return AudioPlaybackService.this.lambda$playTrack$2(mediaPlayer, i, i2);
                 }
             });
             this.player.prepareAsync();

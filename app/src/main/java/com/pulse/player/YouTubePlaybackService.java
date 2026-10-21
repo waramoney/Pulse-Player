@@ -268,58 +268,33 @@ public final class YouTubePlaybackService extends Service implements AudioManage
         }
     }
 
-    private void loadArt(final String str) {
+    private void loadArt(final String url) {
         this.art = null;
-        if (!str.isEmpty() && str.startsWith("https://")) {
-            new Thread(new Runnable() { // from class: com.pulse.player.YouTubePlaybackService.4
-                @Override // java.lang.Runnable
-                public void run() throws Throwable {
-                    Throwable th;
-                    HttpURLConnection httpURLConnection;
-                    HttpURLConnection httpURLConnection2;
-                    try {
-                        httpURLConnection2 = (HttpURLConnection) new URL(str).openConnection();
-                        try {
-                            httpURLConnection2.setConnectTimeout(8000);
-                            httpURLConnection2.setReadTimeout(8000);
-                            InputStream inputStream = httpURLConnection2.getInputStream();
-                            final Bitmap bitmapDecodeStream = BitmapFactory.decodeStream(inputStream);
-                            inputStream.close();
-                            YouTubePlaybackService.this.main.post(new Runnable() { // from class: com.pulse.player.YouTubePlaybackService.4.1
-                                @Override // java.lang.Runnable
-                                public void run() {
-                                    if (str.equals(YouTubePlaybackService.this.thumb) && bitmapDecodeStream != null) {
-                                        YouTubePlaybackService.this.art = bitmapDecodeStream;
-                                        YouTubePlaybackService.this.loadedThumb = str;
-                                        YouTubePlaybackService.this.refresh();
-                                    }
-                                }
-                            });
-                            if (httpURLConnection2 != null) {
-                                httpURLConnection2.disconnect();
-                            }
-                        } catch (Exception e) {
-                            if (httpURLConnection2 != null) {
-                                httpURLConnection2.disconnect();
-                            }
-                        } catch (Throwable th2) {
-                            th = th2;
-                            httpURLConnection = httpURLConnection2;
-                            if (httpURLConnection != null) {
-                                httpURLConnection.disconnect();
-                                throw th;
-                            }
-                            throw th;
-                        }
-                    } catch (Exception e2) {
-                        httpURLConnection2 = null;
-                    } catch (Throwable th3) {
-                        th = th3;
-                        httpURLConnection = null;
-                    }
+        if (url.isEmpty() || !url.startsWith("https://")) return;
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(url).openConnection();
+                connection.setConnectTimeout(8000);
+                connection.setReadTimeout(8000);
+                Bitmap bitmap;
+                try (InputStream stream = connection.getInputStream()) {
+                    bitmap = BitmapFactory.decodeStream(stream);
                 }
-            }).start();
-        }
+                if (bitmap != null) {
+                    main.post(() -> {
+                        if (url.equals(thumb)) {
+                            art = bitmap;
+                            loadedThumb = url;
+                            refresh();
+                        }
+                    });
+                }
+            } catch (Exception ignored) {
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }, "pulse-youtube-artwork").start();
     }
 
     private PendingIntent action(String str, int i) {
